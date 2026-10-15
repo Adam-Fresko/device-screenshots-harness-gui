@@ -205,7 +205,8 @@ The marketplace entry's `source` is `{ "source": "local", "path": "./mods/codex/
 4. Add an entry to `APPS` in `scripts/mods.py`: the manifest path, the marketplace path, the entry shape, and where an entry stores its source.
 5. Add a section for the app here and a line to `README.md`.
 
-## Commits
+## Git
 
+- **Never create, switch, rename or delete a branch unless the user explicitly asks you to.** Work and commit on the branch that is checked out. This covers `git checkout -b`, `git switch`, `git branch`, `git worktree add -b`, and any tool that makes a branch for you. If you think a new branch is needed, ask the user first.
 - Keep one mod, or one repo-level change, per commit when you can.
 - Start the subject with what it touches: `claude-code/<mod>: ...`, `codex/<mod>: ...` or `repo: ...`.
