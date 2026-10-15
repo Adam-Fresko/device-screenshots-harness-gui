@@ -1,0 +1,8 @@
+{
+  "name": "mods-harness-gui",
+  "owner": { "name": "Adam Fresko" },
+  "metadata": {
+    "description": "Claude Code mods from github.com/Adam-Fresko/mods-harness-gui."
+  },
+  "plugins": []
+}

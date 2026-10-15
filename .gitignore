@@ -1,0 +1,10 @@
+# Type declarations Claude Code lays into a mod each time it loads it
+mods/claude-code/*/.claude-plugin/types/
+
+# Claude Code worktrees and per-machine settings
+.claude/worktrees/
+.claude/settings.local.json
+
+node_modules/
+__pycache__/
+.DS_Store

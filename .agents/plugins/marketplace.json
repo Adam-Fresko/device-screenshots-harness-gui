@@ -1,0 +1,7 @@
+{
+  "name": "mods-harness-gui",
+  "interface": {
+    "displayName": "Mods Harness GUI"
+  },
+  "plugins": []
+}

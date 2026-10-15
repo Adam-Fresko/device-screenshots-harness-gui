@@ -1,0 +1,15 @@
+{
+  "name": "__MOD_NAME__",
+  "version": "0.1.0",
+  "description": "__DESCRIPTION__",
+  "author": { "name": "Adam Fresko" },
+  "repository": "https://github.com/Adam-Fresko/mods-harness-gui",
+  "keywords": [],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "__DISPLAY_NAME__",
+    "shortDescription": "__DESCRIPTION__",
+    "developerName": "Adam Fresko",
+    "category": "Productivity"
+  }
+}
