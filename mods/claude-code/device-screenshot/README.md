@@ -1,8 +1,8 @@
 # device-screenshot (Claude Code)
 
-A small button for each device that is connected or running, such as **📷 iPhone 14** and **📷 Android Emulator**. Press one to screenshot that device: the mod copies the picture to your clipboard, and a toast tells you to paste it. Press **⌘V** in the desktop app, or **Ctrl+V** in a terminal session, and it attaches as an image, the same as any picture you paste.
+A small button for each device that is connected or running, such as **iPhone 14** and **Android Emulator**. Press one to screenshot that device: the mod copies the picture to your clipboard, and a toast tells you to paste it. Press **⌘V** in the desktop app, or **Ctrl+V** in a terminal session, and it attaches as an image, the same as any picture you paste.
 
-The buttons sit in a row above the prompt:
+The buttons sit in a row above the prompt. In the desktop app, a black-and-white Apple or Android logo stands before each device's button. Terminals can't draw logos, so there each label starts with 📷:
 
 ```
 [ ↻ ] [ 📷 iPhone 14 ] [ 📷 Galaxy S25 ] [ 📷 Android Emulator ]          ?  ×
@@ -15,7 +15,7 @@ The buttons sit in a row above the prompt:
 
 The buttons show from the start, and the mod remembers whether you hid them for your next session.
 
-While a capture runs, the button's 📷 turns into a spinner (`⠹ Galaxy S25`). It then shows ✓ for a moment, or ✕ if the capture failed.
+While a capture runs, a spinner shows in front of the device's name (`⠹ Galaxy S25`). It then shows ✓ for a moment, or ✕ if the capture failed.
 
 While shown, the buttons follow your devices: the mod checks what's connected every 5 seconds, and **↻** checks right away. While hidden, it doesn't check. With no device connected, no 📷 buttons show, only **↻** and the other controls.
 
@@ -43,7 +43,7 @@ How a button names its device:
 
 Each press replaces what's on your clipboard. Copying uses `osascript`, so it needs a Mac. Where it can't copy, the mod puts an `@path` mention for the picture into your prompt instead, and Claude Code attaches the picture when you send. If a capture fails, a toast says why.
 
-Screenshots are saved in `$TMPDIR/claude-device-screenshots/` as `<platform>-<device>-<time>.png`. Each press makes a new file, and the mod never deletes any.
+Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you can open: `$TMPDIR/claude-device-screenshots/` (macOS gives each user a private `TMPDIR`), or `~/.cache/claude-device-screenshots/` when `TMPDIR` is unset or is the shared `/tmp`. The mod refuses a folder or a capture that turns out to be a symlink. Each press makes a new file, and the mod never deletes any.
 
 ## Develop
 

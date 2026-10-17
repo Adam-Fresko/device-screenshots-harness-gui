@@ -1,5 +1,5 @@
 import type { Engine } from 'claude-code/testing'
-import type { On, ProcessRunResult, RenderPropsOf } from 'claude-code'
+import type { FsStat, On, ProcessRunResult, RenderPropsOf } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
 const NOW = Date.UTC(2026, 9, 15, 18, 15, 30, 123)
@@ -76,9 +76,13 @@ function copied(path: string): string[] {
  * The machine beneath the mod: device tools answered by `answer` (undefined:
  * not installed), and a prompt box holding "look at". `answer` can be swapped.
  */
-function machine(on: On, answer: Answer, { isShown = true } = {}) {
+function machine(
+  on: On,
+  answer: Answer,
+  { isShown = true, env = { TMPDIR: '/tmp/t/', HOME: '/Users/me' } as Record<string, string> } = {},
+) {
   const clock = mock.clock(on, { now: NOW })
-  mock.env(on, { TMPDIR: '/tmp/t/', HOME: '/Users/me' })
+  mock.env(on, env)
   const world = {
     answer,
     devicectl: DEVICECTL_DEVICES,
@@ -88,6 +92,11 @@ function machine(on: On, answer: Answer, { isShown = true } = {}) {
     redraws: 0,
     /** While set, screencap waits for it: a capture the test can look at mid-way. */
     hold: undefined as Promise<void> | undefined,
+    /** What `$.fs.stat` says of a path: the screenshot folder a folder, everything else a file. */
+    statOf: (path: string): FsStat =>
+      path.endsWith('claude-device-screenshots')
+        ? { kind: 'dir' as const, size: 96, mtimeMs: NOW, isLink: false }
+        : { kind: 'file' as const, size: 1024, mtimeMs: NOW, isLink: false },
     /** The mod's `$.store`: what earlier sessions saved, the buttons shown unless a test says not. */
     saved: (isShown ? {} : { isShown: false }) as Record<string, unknown>,
     clock,
@@ -98,10 +107,10 @@ function machine(on: On, answer: Answer, { isShown = true } = {}) {
     if (e.argv[0] === '/bin/sh' && world.hold !== undefined) {
       await world.hold
     }
-    const result = e.argv[0] === 'mkdir' ? ok() : world.answer(e.argv)
+    const result = e.argv[0] === 'mkdir' || e.argv[0] === 'chmod' ? ok() : world.answer(e.argv)
     return result === undefined ? { deny: `${e.argv[0]}: not found` } : { value: result }
   })
-  on('fs.stat', () => ({ value: { kind: 'file', size: 1024, mtimeMs: NOW, isLink: false } }))
+  on('fs.stat', ($, e) => ({ value: world.statOf(e.path) }))
   on('fs.read', () => ({ value: world.devicectl }))
   on('ui.invalidate', async ($, e, next) => {
     const done = await next(e)
@@ -179,7 +188,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await start($)
     const ui = await mountRow($, surface)
 
-    expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Galaxy S25', '📷 Android Emulator'])
+    const names = ['iPhone 17 Pro', 'iPhone 14', 'Galaxy S25', 'Android Emulator']
+    expect(await buttonLabels(ui)).toEqual(['↻', ...names.map(name => (surface === 'terminal' ? `📷 ${name}` : name))])
     expect(await ui.findAll({ type: 'Text' })).toEqual([])
   })
 
@@ -238,7 +248,7 @@ test('a capturing button spins, shows ✓ for a moment, then 📷 again', async 
   expect(await label()).toBe('✓ Galaxy S25')
 
   await world.clock.advance(1_500)
-  expect(await label()).toBe('📷 Galaxy S25')
+  expect(await label()).toBe('Galaxy S25')
 })
 
 test('devices that share a name are numbered', async ($, on) => {
@@ -254,37 +264,37 @@ test('the buttons follow devices as they connect and leave', async ($, on) => {
   const world = machine(on, tools([PHONE]))
   await start($)
   const ui = await mountRow($, 'desktop')
-  expect(await buttonLabels(ui)).toContain('📷 Galaxy S25')
+  expect(await buttonLabels(ui)).toContain('Galaxy S25')
 
   world.answer = tools([EMULATOR])
   await world.clock.advance(5_000)
 
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Android Emulator'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Android Emulator'])
 })
 
 test('↻ looks for devices at once, without waiting for the next check', async ($, on) => {
   const world = machine(on, tools([]))
   await start($)
   const ui = await mountRow($, 'desktop')
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14'])
 
   world.answer = tools([PHONE])
   await ui.press({ key: 'refresh' })
 
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Galaxy S25'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Galaxy S25'])
 })
 
 test('an iPhone that is unplugged and off Wi-Fi leaves at the next check, with a redraw', async ($, on) => {
   const world = machine(on, tools([]))
   await start($)
   const ui = await mountRow($, 'desktop')
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14'])
   const before = world.redraws
 
   world.devicectl = DEVICECTL_DEVICES.replace('"tunnelState":"connected","transportType":"wired"', '"tunnelState":"unavailable"')
   await world.clock.advance(5_000)
 
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro'])
   expect(world.redraws).toBeGreaterThan(before)
 })
 
@@ -325,7 +335,7 @@ test('with nothing saved, the buttons show', async ($, on) => {
   const ui = await mountRow($, 'desktop')
 
   expect(world.saved).toEqual({})
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Galaxy S25'])
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Galaxy S25'])
 })
 
 test('hidden buttons look for no devices', async ($, on) => {
@@ -351,7 +361,7 @@ test('desktop footer: "screenshots" shows only while the buttons are hidden, and
   expect((await footer.find({ key: 'toggle' }))?.text).toBe('screenshots')
 
   await footer.press({ key: 'toggle' })
-  expect(await buttonLabels(band)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Galaxy S25'])
+  expect(await buttonLabels(band)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Galaxy S25'])
   expect(await footer.findAll({ type: 'Button' })).toEqual([])
   expect(world.saved.isShown).toBe(true)
 })
@@ -387,7 +397,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountRow($, surface)
     const close = await ui.find({ key: 'close' })
     expect(close?.props.role).toBe('dismiss')
-    expect(close?.text).toBe(surface === 'terminal' ? '×' : 'Hide device buttons')
+    expect(close?.text).toBe('×')
 
     await ui.press({ key: 'close' })
 
@@ -412,3 +422,74 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await ui.findAll({ type: 'Text' })).toEqual([])
   })
 }
+
+test('desktop draws a black-and-white Apple or Android logo before each device; terminals draw none', async ($, on) => {
+  machine(on, tools([PHONE, EMULATOR]))
+  await start($)
+  const desktop = await mountRow($, 'desktop')
+  const terminal = await mountRow($, 'terminal')
+
+  const logos = await desktop.findAll({ type: 'Svg' })
+  expect(logos.map(logo => logo.props.alt)).toEqual(['Apple', 'Apple', 'Android', 'Android'])
+  expect(String(logos[0]?.props.source)).toContain('prefers-color-scheme:dark')
+  expect(await terminal.findAll({ type: 'Svg' })).toEqual([])
+})
+
+test('the screenshot folder is made private', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  await start($)
+
+  expect(world.ran).toContainEqual(['mkdir', '-m', '700', '-p', DIR])
+  expect(world.ran).toContainEqual(['chmod', '700', DIR])
+})
+
+for (const tmp of [undefined, '/tmp', '/private/tmp/'] as const) {
+  test(`with TMPDIR ${tmp ?? 'unset'}, screenshots go in ~/.cache, never a shared /tmp`, async ($, on) => {
+    const env: Record<string, string> = tmp === undefined ? { HOME: '/Users/me' } : { TMPDIR: tmp, HOME: '/Users/me' }
+    const world = machine(on, tools([PHONE]), { env })
+    await start($)
+    const ui = await mountRow($, 'desktop')
+    await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+    expect(world.ran).toContainEqual(copied(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))
+  })
+}
+
+test('a screenshot folder that is a symlink is refused: nothing is captured, and a toast says why', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  const real = world.statOf
+  world.statOf = path => (path.endsWith('claude-device-screenshots') ? { kind: 'other' as const, size: 0, mtimeMs: NOW, isLink: true } : real(path))
+  await start($)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
+  expect(world.ran.some(argv => argv[0] === '/bin/sh' || argv.includes('devicectl'))).toBe(false)
+})
+
+test('a capture that comes back as a symlink is not copied', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  const real = world.statOf
+  world.statOf = path => (path.endsWith('.png') ? { kind: 'other' as const, size: 0, mtimeMs: NOW, isLink: true } : real(path))
+  await start($)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  expect(world.toasts).toEqual(['Galaxy S25: no picture came back.'])
+  expect(world.ran.some(argv => argv[0] === 'osascript')).toBe(false)
+})
+
+test('what a device calls itself is cut to one clean line of at most 40 characters', async ($, on) => {
+  const second = 'R58N0000000            device usb:0-3 product:x model:Other transport_id:8'
+  const working = tools([PHONE, second])
+  machine(on, argv => {
+    if (argv.includes('default_device_name')) {
+      return ok(argv.includes('RFCYA08AC7R') ? 'Evil\u001b[31mPhone\nsecond line' : `${'W'.repeat(60)}\n`)
+    }
+    return working(argv)
+  })
+  await start($)
+  const ui = await mountRow($, 'desktop')
+
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Evil[31mPhone', `${'W'.repeat(39)}…`])
+})

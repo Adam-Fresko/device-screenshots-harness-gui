@@ -1,5 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type {
+  BoxProps,
   ButtonProps,
   ElementConstructor,
   EngineInterface,
@@ -7,9 +8,10 @@ import type {
   Register,
   RenderElement,
   RenderSurface,
+  SvgProps,
 } from 'claude-code'
 
-import type { Device, Finished } from '../types'
+import type { Device, Finished, Platform } from '../types'
 
 const devices = atom({ plugin: 'device-screenshot', key: 'devices' } as const, [])
 const busy = atom({ plugin: 'device-screenshot', key: 'busy' } as const, null)
@@ -29,6 +31,21 @@ const SPIN_MS = 100
 
 /** How long ✓ or ✕ stays on a button after its capture. */
 const DONE_MS = 1_500
+
+// Black-and-white platform logos drawn before a device's button on desktop: near
+// black on a light theme, near white on a dark one. Apple's shape is Simple Icons' (CC0).
+const LOGO_STYLE =
+  '<style>.f{fill:#1d1d1f}.s{stroke:#1d1d1f}@media (prefers-color-scheme:dark){.f{fill:#f2f2f2}.s{stroke:#f2f2f2}}</style>'
+const LOGO: Record<Platform, { source: string; alt: string }> = {
+  ios: {
+    alt: 'Apple',
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${LOGO_STYLE}<path class="f" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>`,
+  },
+  android: {
+    alt: 'Android',
+    source: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 4 24 16">${LOGO_STYLE}<path class="s" d="M7.3 10.3 5.2 6.4M16.7 10.3l2.1-3.9" fill="none" stroke-width="1.5" stroke-linecap="round"/><path class="f" fill-rule="evenodd" d="M2 19a10 10 0 0 1 20 0zM9.7 15a1.2 1.2 0 1 1-2.4 0a1.2 1.2 0 1 1 2.4 0zM16.7 15a1.2 1.2 0 1 1-2.4 0a1.2 1.2 0 1 1 2.4 0z"/></svg>`,
+  },
+}
 
 type SimctlList = { devices?: Record<string, { udid: string; name: string; state: string }[]> }
 
@@ -75,11 +92,33 @@ function lastLine(text: string): string {
   return text.trim().split('\n').pop()?.trim() ?? ''
 }
 
-async function shotsDir($: EngineInterface): Promise<string> {
+/** One line of printable text, at most `max` long: what a device or a tool said, safe to draw. */
+function clean(text: string, max = 40): string {
+  const line = (text.split('\n')[0] ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim()
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line
+}
+
+/**
+ * The folder screenshots go in, private to this user (mode 700): TMPDIR where it is
+ * the user's own (macOS gives each user one), else ~/.cache, never a shared /tmp.
+ * Undefined when that is not a real folder, a symlink someone left there for one.
+ */
+async function shotsDir($: EngineInterface): Promise<string | undefined> {
   if (dirMade === undefined) {
-    const tmp = (await $.env.get('TMPDIR')) ?? '/tmp'
-    const dir = `${tmp.replace(/\/+$/, '')}/claude-device-screenshots`
-    await run($, ['mkdir', '-p', dir])
+    const tmp = await $.env.get('TMPDIR')
+    const home = await $.env.get('HOME')
+    const isShared = tmp === undefined || /^\/(private\/)?(var\/)?tmp\/?$/.test(tmp)
+    const base = isShared ? home && `${home}/.cache` : tmp
+    if (!base) {
+      return undefined
+    }
+    const dir = `${base.replace(/\/+$/, '')}/claude-device-screenshots`
+    await run($, ['mkdir', '-m', '700', '-p', dir])
+    const made = await $.fs.stat(dir).catch(() => undefined)
+    if (made === undefined || made.isLink || made.kind !== 'dir') {
+      return undefined
+    }
+    await run($, ['chmod', '700', dir])
     dirMade = dir
   }
 
@@ -97,14 +136,15 @@ async function findIos($: EngineInterface): Promise<Device[]> {
   for (const list of Object.values(parse<SimctlList>(sims.stdout)?.devices ?? {})) {
     for (const sim of list) {
       if (sim.state === 'Booted') {
-        found.push({ id: sim.udid, name: sim.name, platform: 'ios', kind: 'simulator' })
+        found.push({ id: sim.udid, name: clean(sim.name) || 'Simulator', platform: 'ios', kind: 'simulator' })
       }
     }
   }
 
   // devicectl writes its JSON to a file; older Xcodes cannot write it to stdout.
-  const listed = `${await shotsDir($)}/devicectl-devices.json`
-  const phones = await run($, ['xcrun', 'devicectl', 'list', 'devices', '--json-output', listed])
+  const dir = await shotsDir($)
+  const listed = `${dir}/devicectl-devices.json`
+  const phones = dir === undefined ? undefined : await run($, ['xcrun', 'devicectl', 'list', 'devices', '--json-output', listed])
   if (phones?.exitCode === 0) {
     const text = await $.fs.read(listed).catch(() => '')
     for (const phone of parse<DevicectlList>(text)?.result?.devices ?? []) {
@@ -113,7 +153,7 @@ async function findIos($: EngineInterface): Promise<Device[]> {
       const id = hardware.udid ?? phone.identifier
       const isReachable = link.tunnelState === 'connected' || link.transportType !== undefined
       if (hardware.platform === 'iOS' && isReachable && id !== undefined) {
-        const name = hardware.marketingName ?? phone.deviceProperties?.name ?? 'iPhone'
+        const name = clean(hardware.marketingName ?? phone.deviceProperties?.name ?? '') || 'iPhone'
         found.push({ id, name, platform: 'ios', kind: 'iphone' })
       }
     }
@@ -165,9 +205,11 @@ async function androidName($: EngineInterface, adb: string, serial: string, mode
       const said = (await run($, [adb, '-s', serial, 'shell', ...args]))?.stdout.trim() ?? ''
       return said === 'null' ? '' : said
     }
-    name = (await ask(['getprop', 'ro.product.marketname'])) ||
-      (await ask(['settings', 'get', 'global', 'default_device_name'])) ||
-      model
+    // What a device says about itself is the device's to choose: one clean, short line.
+    name = clean(await ask(['getprop', 'ro.product.marketname'])) ||
+      clean(await ask(['settings', 'get', 'global', 'default_device_name'])) ||
+      clean(model) ||
+      'Android device'
   }
   androidNames.set(serial, name)
 
@@ -263,10 +305,11 @@ async function shoot($: EngineInterface, device: Device, path: string): Promise<
     return `${device.name}: the capture did not start or timed out.`
   }
   if (ran.exitCode !== 0) {
-    return `${device.name}: ${lastLine(ran.stderr) || lastLine(ran.stdout) || `exit ${ran.exitCode}`}`
+    return `${device.name}: ${clean(lastLine(ran.stderr) || lastLine(ran.stdout), 200) || `exit ${ran.exitCode}`}`
   }
+  // Only a regular file this capture wrote goes on: never a symlink to something else.
   const saved = await $.fs.stat(path).catch(() => undefined)
-  if (saved === undefined || saved.size === 0) {
+  if (saved === undefined || saved.isLink || saved.kind !== 'file' || saved.size === 0) {
     return `${device.name}: no picture came back.`
   }
 
@@ -304,8 +347,12 @@ async function mention($: EngineInterface, path: string): Promise<boolean> {
 
 /** Takes and copies one device's screenshot; says what to toast, and whether it went in. */
 async function capture($: EngineInterface, device: Device, surface: RenderSurface): Promise<{ said?: string; isOk: boolean }> {
+  const dir = await shotsDir($)
+  if (dir === undefined) {
+    return { said: 'Could not make a private folder for screenshots.', isOk: false }
+  }
   const stamp = stampOf(await $.clock.now())
-  const path = `${await shotsDir($)}/${device.platform}-${slugOf(device.name)}-${stamp}.png`
+  const path = `${dir}/${device.platform}-${slugOf(device.name)}-${stamp}.png`
   const problem = await shoot($, device, path)
   if (problem !== undefined) {
     return { said: problem, isOk: false }
@@ -347,8 +394,11 @@ async function screenshot($: EngineInterface, device: Device, surface: RenderSur
   }
 }
 
-/** A device's button: a spinner while it captures, ✓ or ✕ for a moment after. */
-function labelOf(device: Device, running: string | null, finished: Finished | null): string {
+/**
+ * A device's button: a spinner while it captures, ✓ or ✕ for a moment after.
+ * At rest a terminal's starts with 📷; a desktop draws the platform's logo beside it.
+ */
+function labelOf(device: Device, running: string | null, finished: Finished | null, hasLogo: boolean): string {
   if (running === device.id) {
     return `${SPINNER[spin % SPINNER.length]} ${device.name}`
   }
@@ -356,7 +406,7 @@ function labelOf(device: Device, running: string | null, finished: Finished | nu
     return `${finished.isOk ? '✓' : '✕'} ${device.name}`
   }
 
-  return `📷 ${device.name}`
+  return hasLogo ? device.name : `📷 ${device.name}`
 }
 
 /** What ? says: how the buttons work, with this surface's paste key and toggle. */
@@ -385,8 +435,13 @@ async function setShown($: EngineInterface, shown: boolean): Promise<void> {
   $.ui.invalidate('ui.render')
 }
 
-/** ↻ and a button per connected device, for the band above the prompt. */
-async function deviceButtons($: EngineInterface, Button: ElementConstructor<ButtonProps>): Promise<RenderElement[]> {
+/** ↻ and a button per connected device, each after its platform's logo where `Svg` draws. */
+async function deviceButtons(
+  $: EngineInterface,
+  Box: ElementConstructor<BoxProps>,
+  Button: ElementConstructor<ButtonProps>,
+  Svg: ElementConstructor<SvgProps> | undefined,
+): Promise<RenderElement[]> {
   const list = await read($, devices)
   const running = await read($, busy)
   const finished = await read($, done)
@@ -403,14 +458,25 @@ async function deviceButtons($: EngineInterface, Button: ElementConstructor<Butt
       label="↻"
       onPress={() => refresh($, true).catch(error => $.ui.toast(`Could not look for devices: ${String(error)}`))}
     />,
-    ...list.map(device => (
-      <Button
-        key={`shot:${device.id}`}
-        label={labelOf(device, running, finished)}
-        // A capture can outlast a press's 10s budget, so it runs after the press returns.
-        onPress={pressed => void $.clock.after(0, () => void press(device, pressed.surface))}
-      />
-    )),
+    ...list.map(device => {
+      const button = (
+        <Button
+          key={`shot:${device.id}`}
+          label={labelOf(device, running, finished, Svg !== undefined)}
+          // A capture can outlast a press's 10s budget, so it runs after the press returns.
+          onPress={pressed => void $.clock.after(0, () => void press(device, pressed.surface))}
+        />
+      )
+      // A Button holds only text, so the logo stands just before it.
+      return Svg === undefined ? (
+        button
+      ) : (
+        <Box alignItems="center">
+          <Svg source={LOGO[device.platform].source} alt={LOGO[device.platform].alt} width={14} height={14} />
+          {button}
+        </Box>
+      )
+    }),
   ]
 }
 
@@ -467,7 +533,10 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const { Box, Button, Text } = $.ui.resolve(e)
+    const table = $.ui.resolve(e)
+    const { Box, Button, Text } = table
+    // Every table lists Svg, but a terminal draws it as nothing: logos only off the terminal.
+    const Svg = e.surface !== 'terminal' && 'Svg' in table ? table.Svg : undefined
     const isHelping = await read($, isHelpOpen)
 
     // ↻ and a button per device on the left; ? and the close × in the right corner.
@@ -475,18 +544,11 @@ export const register: Register = on => {
       <Box flexDirection="column">
         <Box justifyContent="space-between" columnGap={1}>
           <Box columnGap={1} flexWrap="wrap">
-            {await deviceButtons($, Button)}
+            {await deviceButtons($, Box, Button, Svg)}
           </Box>
           <Box columnGap={1}>
             <Button key="help" label="?" plain dimColor onPress={() => update($, isHelpOpen, open => !open)} />
-            <Button
-              key="close"
-              label={e.surface === 'terminal' ? '×' : 'Hide device buttons'}
-              role="dismiss"
-              plain
-              dimColor
-              onPress={() => setShown($, false)}
-            />
+            <Button key="close" label="×" role="dismiss" plain dimColor onPress={() => setShown($, false)} />
           </Box>
         </Box>
         {isHelping && <Text dimColor>{helpOf(e.surface)}</Text>}
