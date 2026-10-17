@@ -1,8 +1,16 @@
 {
   "name": "mods-harness-gui",
-  "owner": { "name": "Adam Fresko" },
+  "owner": {
+    "name": "Adam Fresko"
+  },
   "metadata": {
     "description": "Claude Code mods from github.com/Adam-Fresko/mods-harness-gui."
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "device-screenshot",
+      "source": "./mods/claude-code/device-screenshot",
+      "description": "Buttons above the prompt that screenshot a connected iOS or Android device and attach the picture to your message."
+    }
+  ]
 }

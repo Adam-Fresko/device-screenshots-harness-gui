@@ -1,0 +1,7 @@
+{
+  "name": "device-screenshot",
+  "version": "0.1.0",
+  "description": "Buttons above the prompt that screenshot a connected iOS or Android device and attach the picture to your message.",
+  "author": { "name": "Adam Fresko" },
+  "types": "./types/index.d.ts"
+}
