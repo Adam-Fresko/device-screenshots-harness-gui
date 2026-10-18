@@ -548,3 +548,24 @@ test('hidden buttons are not redrawn on the checks', async ($, on) => {
   await world.clock.advance(15_000)
   expect(world.redraws).toBe(before)
 })
+
+test('an empty HOME is no home folder: a TMPDIR outside the allowed places is refused', async ($, on) => {
+  const world = machine(on, tools([PHONE]), { env: { TMPDIR: '/opt/shared/', HOME: '' } })
+  await start($)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
+  expect(world.ran.some(argv => argv[0] === '/bin/sh')).toBe(false)
+})
+
+test('tag characters go, and a name ends at any line break', async ($, on) => {
+  const tag = String.fromCodePoint(0xe0041)
+  const lineSeparator = String.fromCharCode(0x2028)
+  const working = tools([PHONE])
+  machine(on, argv => (argv.includes('default_device_name') ? ok(`Gal${tag}axy S25${lineSeparator}second line\n`) : working(argv)))
+  await start($)
+  const ui = await mountRow($, 'desktop')
+
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Galaxy S25'])
+})

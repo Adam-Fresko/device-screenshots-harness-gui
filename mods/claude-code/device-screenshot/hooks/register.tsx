@@ -93,13 +93,25 @@ function lastLine(text: string): string {
 }
 
 // Control, format and bidi characters: invisible, or able to make a name read as another.
-const INVISIBLE = /[\u0000-\u001f\u007f-\u009f­͏؜​-‏‪-‮⁠-⁤⁦-⁯﻿]/g
-
-/** One line of printable text, at most `max` characters: what a device or a tool said, safe to draw. */
+/**
+ * One line of printable text, at most `max` characters: what a device or a tool said,
+ * safe to draw. It keeps letters, marks, digits, punctuation, symbols and plain spaces,
+ * so control, format, bidi, private-use and tag characters cannot hide or fake text.
+ */
 function clean(text: string, max = 40): string {
-  const line = (text.split('\n')[0] ?? '').normalize('NFC').replace(INVISIBLE, '').trim()
+  const line = (text.split(/[\r\n\u2028\u2029]/)[0] ?? '')
+    .normalize('NFC')
+    .replace(/[^\p{L}\p{M}\p{N}\p{P}\p{S}\p{Zs}]/gu, '')
+    .replace(/\p{Zs}+/gu, ' ')
+    .trim()
   const chars = [...line]
   return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : line
+}
+
+/** HOME as a home folder: an absolute path other than `/`, without a trailing slash. */
+function homeOf(home: string | undefined): string | undefined {
+  const trimmed = home?.replace(/\/+$/, '')
+  return trimmed !== undefined && trimmed.startsWith('/') ? trimmed : undefined
 }
 
 /**
@@ -129,7 +141,7 @@ async function makePrivate($: EngineInterface, dir: string, home: string | undef
 async function shotsDir($: EngineInterface): Promise<string | undefined> {
   if (dirMade === undefined) {
     const tmp = await $.env.get('TMPDIR')
-    const home = await $.env.get('HOME')
+    const home = homeOf(await $.env.get('HOME'))
     const isShared = tmp === undefined || /^\/(private\/)?(var\/)?tmp\/?$/.test(tmp)
     const bases = [isShared ? undefined : tmp, home && `${home}/.cache`]
     for (const base of bases) {
