@@ -208,5 +208,6 @@ The marketplace entry's `source` is `{ "source": "local", "path": "./mods/codex/
 ## Git
 
 - **Never create, switch, rename or delete a branch unless the user explicitly asks you to.** Work and commit on the branch that is checked out. This covers `git checkout -b`, `git switch`, `git branch`, `git worktree add -b`, and any tool that makes a branch for you. If you think a new branch is needed, ask the user first.
+- **Never change or update a branch unless the user explicitly asks you to.** Committing to the checked-out branch is the only change you make on your own. Ask first before you merge into, rebase, reset, fast-forward, pull into or push any branch, and before you bring a branch up to date with another, including through a tool that syncs a worktree with its base branch. A request covers only what it names: being asked to merge into `main` is not permission to push `main`.
 - Keep one mod, or one repo-level change, per commit when you can.
 - Start the subject with what it touches: `claude-code/<mod>: ...`, `codex/<mod>: ...` or `repo: ...`.
