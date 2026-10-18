@@ -92,40 +92,58 @@ function lastLine(text: string): string {
   return text.trim().split('\n').pop()?.trim() ?? ''
 }
 
-/** One line of printable text, at most `max` long: what a device or a tool said, safe to draw. */
+// Control, format and bidi characters: invisible, or able to make a name read as another.
+const INVISIBLE = /[\u0000-\u001f\u007f-\u009f­͏؜​-‏‪-‮⁠-⁤⁦-⁯﻿]/g
+
+/** One line of printable text, at most `max` characters: what a device or a tool said, safe to draw. */
 function clean(text: string, max = 40): string {
-  const line = (text.split('\n')[0] ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim()
-  return line.length > max ? `${line.slice(0, max - 1)}…` : line
+  const line = (text.split('\n')[0] ?? '').normalize('NFC').replace(INVISIBLE, '').trim()
+  const chars = [...line]
+  return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : line
 }
 
 /**
- * The folder screenshots go in, private to this user (mode 700): TMPDIR where it is
- * the user's own (macOS gives each user one), else ~/.cache, never a shared /tmp.
- * Undefined when that is not a real folder, a symlink someone left there for one.
+ * Makes `dir` this user's own private folder, or says it cannot: it must end up a
+ * real folder (no symlink) under the home folder or a per-user temp area, and chmod
+ * 700 must succeed, which it does only on a folder this user owns.
+ */
+async function makePrivate($: EngineInterface, dir: string, home: string | undefined): Promise<boolean> {
+  if ((await run($, ['mkdir', '-m', '700', '-p', dir]))?.exitCode !== 0) {
+    return false
+  }
+  const made = await $.fs.stat(dir, { resolve: true }).catch(() => undefined)
+  const real = made?.realPath ?? ''
+  const isOwnPlace = (home !== undefined && real.startsWith(`${home}/`)) || /^\/(private\/)?var\/folders\/|^\/run\/user\//.test(real)
+  if (made === undefined || made.isLink || made.kind !== 'dir' || !isOwnPlace) {
+    return false
+  }
+
+  return (await run($, ['chmod', '700', dir]))?.exitCode === 0
+}
+
+/**
+ * The folder screenshots go in, private to this user: TMPDIR where it is the user's
+ * own (macOS gives each user one), else ~/.cache; never a shared /tmp. Undefined
+ * when neither can be made private, a symlink or someone else's folder there, say.
  */
 async function shotsDir($: EngineInterface): Promise<string | undefined> {
   if (dirMade === undefined) {
     const tmp = await $.env.get('TMPDIR')
     const home = await $.env.get('HOME')
     const isShared = tmp === undefined || /^\/(private\/)?(var\/)?tmp\/?$/.test(tmp)
-    const base = isShared ? home && `${home}/.cache` : tmp
-    if (!base) {
-      return undefined
+    const bases = [isShared ? undefined : tmp, home && `${home}/.cache`]
+    for (const base of bases) {
+      const dir = base && `${base.replace(/\/+$/, '')}/claude-device-screenshots`
+      if (dir && (await makePrivate($, dir, home))) {
+        dirMade = dir
+        break
+      }
     }
-    const dir = `${base.replace(/\/+$/, '')}/claude-device-screenshots`
-    await run($, ['mkdir', '-m', '700', '-p', dir])
-    const made = await $.fs.stat(dir).catch(() => undefined)
-    if (made === undefined || made.isLink || made.kind !== 'dir') {
-      return undefined
-    }
-    await run($, ['chmod', '700', dir])
-    dirMade = dir
   }
 
   return dirMade
 }
 
-/** Booted simulators and connected iPhones; none where Xcode is missing. */
 async function findIos($: EngineInterface): Promise<Device[]> {
   const found: Device[] = []
   const sims = await run($, ['xcrun', 'simctl', 'list', 'devices', 'booted', '--json'])
@@ -480,6 +498,30 @@ async function deviceButtons(
   ]
 }
 
+/** The band: ↻ and the devices on the left; ? and × on the right; the help under it. */
+async function drawBand($: EngineInterface, e: Parameters<EngineInterface['ui']['resolve']>[0]): Promise<RenderElement> {
+  const table = $.ui.resolve(e)
+  const { Box, Button, Text } = table
+  // Every table lists Svg, but a terminal draws it as nothing: logos only off the terminal.
+  const Svg = e.surface !== 'terminal' && 'Svg' in table ? table.Svg : undefined
+  const isHelping = await read($, isHelpOpen)
+
+  return (
+    <Box flexDirection="column">
+      <Box justifyContent="space-between" columnGap={1}>
+        <Box columnGap={1} flexWrap="wrap">
+          {await deviceButtons($, Box, Button, Svg)}
+        </Box>
+        <Box columnGap={1}>
+          <Button key="help" label="?" plain dimColor onPress={() => update($, isHelpOpen, open => !open)} />
+          <Button key="close" label="×" role="dismiss" plain dimColor onPress={() => setShown($, false)} />
+        </Box>
+      </Box>
+      {isHelping && <Text dimColor>{helpOf(e.surface)}</Text>}
+    </Box>
+  )
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -494,10 +536,13 @@ export const register: Register = on => {
     if (shown) {
       await refresh($)
     }
-    // Hidden buttons need no devices looked for.
+    // Hidden buttons need no devices looked for. Shown ones are redrawn on every check
+    // too: the desktop app drops the band when a turn ends (its own box takes the room
+    // above the prompt) and asks for it again only when the next turn starts.
     $.clock.every(POLL_MS, async () => {
       if (await read($, isShown)) {
         await refresh($)
+        $.ui.invalidate('ui.render')
       }
     })
 
@@ -533,26 +578,6 @@ export const register: Register = on => {
       return next(e)
     }
 
-    const table = $.ui.resolve(e)
-    const { Box, Button, Text } = table
-    // Every table lists Svg, but a terminal draws it as nothing: logos only off the terminal.
-    const Svg = e.surface !== 'terminal' && 'Svg' in table ? table.Svg : undefined
-    const isHelping = await read($, isHelpOpen)
-
-    // ↻ and a button per device on the left; ? and the close × in the right corner.
-    return (
-      <Box flexDirection="column">
-        <Box justifyContent="space-between" columnGap={1}>
-          <Box columnGap={1} flexWrap="wrap">
-            {await deviceButtons($, Box, Button, Svg)}
-          </Box>
-          <Box columnGap={1}>
-            <Button key="help" label="?" plain dimColor onPress={() => update($, isHelpOpen, open => !open)} />
-            <Button key="close" label="×" role="dismiss" plain dimColor onPress={() => setShown($, false)} />
-          </Box>
-        </Box>
-        {isHelping && <Text dimColor>{helpOf(e.surface)}</Text>}
-      </Box>
-    )
+    return drawBand($, e)
   })
 }

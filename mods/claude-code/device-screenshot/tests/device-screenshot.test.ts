@@ -4,7 +4,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 const NOW = Date.UTC(2026, 9, 15, 18, 15, 30, 123)
 const STAMP = '20261015-181530-123'
-const DIR = '/tmp/t/claude-device-screenshots'
+const DIR = '/var/folders/t/T/claude-device-screenshots'
 
 const BAND: RenderPropsOf['AbovePrompt'] = {
   hasSurvey: false,
@@ -79,7 +79,10 @@ function copied(path: string): string[] {
 function machine(
   on: On,
   answer: Answer,
-  { isShown = true, env = { TMPDIR: '/tmp/t/', HOME: '/Users/me' } as Record<string, string> } = {},
+  {
+    isShown = true,
+    env = { TMPDIR: '/var/folders/t/T/', HOME: '/Users/me' } as Record<string, string>,
+  } = {},
 ) {
   const clock = mock.clock(on, { now: NOW })
   mock.env(on, env)
@@ -95,8 +98,10 @@ function machine(
     /** What `$.fs.stat` says of a path: the screenshot folder a folder, everything else a file. */
     statOf: (path: string): FsStat =>
       path.endsWith('claude-device-screenshots')
-        ? { kind: 'dir' as const, size: 96, mtimeMs: NOW, isLink: false }
-        : { kind: 'file' as const, size: 1024, mtimeMs: NOW, isLink: false },
+        ? { kind: 'dir' as const, size: 96, mtimeMs: NOW, isLink: false, realPath: path }
+        : { kind: 'file' as const, size: 1024, mtimeMs: NOW, isLink: false, realPath: path },
+    /** What chmod answers: a folder this user owns takes it. */
+    chmod: ok(),
     /** The mod's `$.store`: what earlier sessions saved, the buttons shown unless a test says not. */
     saved: (isShown ? {} : { isShown: false }) as Record<string, unknown>,
     clock,
@@ -107,7 +112,7 @@ function machine(
     if (e.argv[0] === '/bin/sh' && world.hold !== undefined) {
       await world.hold
     }
-    const result = e.argv[0] === 'mkdir' || e.argv[0] === 'chmod' ? ok() : world.answer(e.argv)
+    const result = e.argv[0] === 'mkdir' ? ok() : e.argv[0] === 'chmod' ? world.chmod : world.answer(e.argv)
     return result === undefined ? { deny: `${e.argv[0]}: not found` } : { value: result }
   })
   on('fs.stat', ($, e) => ({ value: world.statOf(e.path) }))
@@ -492,4 +497,54 @@ test('what a device calls itself is cut to one clean line of at most 40 characte
   const ui = await mountRow($, 'desktop')
 
   expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Evil[31mPhone', `${'W'.repeat(39)}…`])
+})
+
+test('a screenshot folder someone else owns is refused: nothing is captured', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  world.chmod = failed('chmod: Operation not permitted')
+  await start($)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
+  expect(world.ran.some(argv => argv[0] === '/bin/sh')).toBe(false)
+})
+
+test('a TMPDIR outside the home folder and the per-user temp areas falls back to ~/.cache', async ($, on) => {
+  const world = machine(on, tools([PHONE]), { env: { TMPDIR: '/opt/shared/', HOME: '/Users/me' } })
+  await start($)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  expect(world.ran).toContainEqual(copied(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))
+})
+
+test('invisible and right-to-left characters are taken out of a device name', async ($, on) => {
+  const working = tools([PHONE])
+  machine(on, argv => (argv.includes('default_device_name') ? ok('Gal​axy‮ S25﻿\n') : working(argv)))
+  await start($)
+  const ui = await mountRow($, 'desktop')
+
+  expect(await buttonLabels(ui)).toEqual(['↻', 'iPhone 17 Pro', 'iPhone 14', 'Galaxy S25'])
+})
+
+test('shown buttons are redrawn on every check, so a band the surface dropped comes back', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  await start($)
+  await mountRow($, 'desktop')
+  const before = world.redraws
+
+  await world.clock.advance(5_000)
+  expect(world.redraws).toBe(before + 1)
+  await world.clock.advance(5_000)
+  expect(world.redraws).toBe(before + 2)
+})
+
+test('hidden buttons are not redrawn on the checks', async ($, on) => {
+  const world = machine(on, tools([PHONE]), { isShown: false })
+  await start($)
+  const before = world.redraws
+
+  await world.clock.advance(15_000)
+  expect(world.redraws).toBe(before)
 })

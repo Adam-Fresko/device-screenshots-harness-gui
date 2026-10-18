@@ -13,7 +13,7 @@ The buttons sit in a row above the prompt. In the desktop app, a black-and-white
 - In the Claude desktop app, press **screenshots** in the footer under the prompt, between the permission mode and the model. It shows only while the row is hidden.
 - In a terminal session, run `/device-screenshot`. Running it again hides the row. The desktop app may not offer this command, which is why it has the footer button.
 
-The buttons show from the start, and the mod remembers whether you hid them for your next session.
+The buttons show from the start, and the mod remembers whether you hid them for your next session. While shown, the row is redrawn every 5 seconds, so it comes back on its own if the app clears the space above the prompt at the end of a turn.
 
 While a capture runs, a spinner shows in front of the device's name (`⠹ Galaxy S25`). It then shows ✓ for a moment, or ✕ if the capture failed.
 
@@ -43,7 +43,7 @@ How a button names its device:
 
 Each press replaces what's on your clipboard. Copying uses `osascript`, so it needs a Mac. Where it can't copy, the mod puts an `@path` mention for the picture into your prompt instead, and Claude Code attaches the picture when you send. If a capture fails, a toast says why.
 
-Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you can open: `$TMPDIR/claude-device-screenshots/` (macOS gives each user a private `TMPDIR`), or `~/.cache/claude-device-screenshots/` when `TMPDIR` is unset or is the shared `/tmp`. The mod refuses a folder or a capture that turns out to be a symlink. Each press makes a new file, and the mod never deletes any.
+Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you can open: `$TMPDIR/claude-device-screenshots/` (macOS gives each user a private `TMPDIR`), or `~/.cache/claude-device-screenshots/` when `TMPDIR` is unset or is the shared `/tmp`. The mod refuses a folder another user owns, one outside your home folder or per-user temp area, and a folder or a capture that turns out to be a symlink. Each press makes a new file, and the mod never deletes any.
 
 ## Develop
 
