@@ -51,6 +51,22 @@ Each press replaces what's on your clipboard. Copying uses `osascript`, so it ne
 
 Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you can open: `$TMPDIR/claude-device-screenshots/` (macOS gives each user a private `TMPDIR`), or `~/.cache/claude-device-screenshots/` when `TMPDIR` is unset or is the shared `/tmp`. The mod refuses a folder another user owns, one outside your home folder or per-user temp area, and a folder or a capture that turns out to be a symlink. Each press makes a new file, and the mod never deletes any.
 
+## What it runs, reads and sends
+
+The mod makes no network connections and sends nothing anywhere. A screenshot leaves your machine only when you send a message with it attached; Claude Code then sends it to Anthropic like any picture you paste.
+
+- **Commands it runs**, only on your Mac:
+  - `xcrun simctl list devices booted --json` and `xcrun devicectl list devices --json-output <file>` to find iOS devices, every 5 seconds while the buttons show, and when you press **↻**
+  - `adb devices -l` to find Android devices. It also runs `adb -s <serial> shell getprop ro.product.marketname` and `adb -s <serial> shell settings get global default_device_name` once per phone, to name it
+  - On a press: `xcrun simctl io <udid> screenshot <file>`, `xcrun devicectl device capture screenshot`, `idevicescreenshot -u <udid> <file>` as a fallback, or `adb -s <serial> exec-out screencap -p` run through `/bin/sh` so its output goes straight into the file
+  - `osascript` to put the picture on your clipboard, plus `mkdir` and `chmod` to make the screenshot folder private
+- **What it reads:** the environment variables `HOME`, `TMPDIR`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, and the device list `devicectl` writes in the screenshot folder.
+- **What it writes:** the screenshots and that device list, in the private folder described under Use, and one setting in Claude Code's plugin storage, whether you hid the buttons.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
+
 ## Develop
 
 ```bash

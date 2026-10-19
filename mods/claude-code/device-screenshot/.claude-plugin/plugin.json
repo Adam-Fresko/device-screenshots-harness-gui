@@ -1,7 +1,23 @@
 {
   "name": "device-screenshot",
+  "displayName": "Device Screenshot",
   "version": "0.1.1",
   "description": "Buttons above the prompt that screenshot a connected iOS or Android device and attach the picture to your message.",
-  "author": { "name": "Adam Fresko" },
+  "author": {
+    "name": "Adam Fresko"
+  },
+  "homepage": "https://github.com/Adam-Fresko/mods-harness-gui/tree/main/mods/claude-code/device-screenshot",
+  "repository": "https://github.com/Adam-Fresko/mods-harness-gui",
+  "license": "MIT",
+  "keywords": [
+    "screenshot",
+    "ios",
+    "android",
+    "simulator",
+    "emulator",
+    "iphone",
+    "adb",
+    "xcode"
+  ],
   "types": "./types/index.d.ts"
 }
