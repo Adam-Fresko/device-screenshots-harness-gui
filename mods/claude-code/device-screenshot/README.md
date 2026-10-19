@@ -53,15 +53,32 @@ Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you c
 
 ## What it runs, reads and sends
 
-The mod makes no network connections and sends nothing anywhere. A screenshot leaves your machine only when you send a message with it attached; Claude Code then sends it to Anthropic like any picture you paste.
+**What it sends, and where: nothing, to no one.** The mod opens no network connection and calls no web service. A screenshot leaves your Mac only when you send a message with it attached; Claude Code then sends it to Anthropic like any picture you paste.
 
-- **Commands it runs**, only on your Mac:
-  - `xcrun simctl list devices booted --json` and `xcrun devicectl list devices --json-output <file>` to find iOS devices, every 5 seconds while the buttons show, and when you press **↻**
-  - `adb devices -l` to find Android devices. It also runs `adb -s <serial> shell getprop ro.product.marketname` and `adb -s <serial> shell settings get global default_device_name` once per phone, to name it
-  - On a press: `xcrun simctl io <udid> screenshot <file>`, `xcrun devicectl device capture screenshot`, `idevicescreenshot -u <udid> <file>` as a fallback, or `adb -s <serial> exec-out screencap -p` run through `/bin/sh` so its output goes straight into the file
-  - `osascript` to put the picture on your clipboard, plus `mkdir` and `chmod` to make the screenshot folder private
-- **What it reads:** the environment variables `HOME`, `TMPDIR`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, and the device list `devicectl` writes in the screenshot folder.
-- **What it writes:** the screenshots and that device list, in the private folder described under Use, and one setting in Claude Code's plugin storage, whether you hid the buttons.
+**Programs it starts, and why.** The mod starts programs through Claude Code's process call, in the `run` helper near the top of `hooks/register.tsx`. These are all of them. They talk only to your own devices, over USB or the local network a device is paired on.
+
+- To find iOS devices, every 5 seconds while the buttons show and when you press **↻**: `xcrun simctl list devices booted --json` and `xcrun devicectl list devices --json-output <file>`
+- To find Android devices, on the same checks: `adb devices -l`. To name a phone, once each: `adb -s <serial> shell getprop ro.product.marketname` and `adb -s <serial> shell settings get global default_device_name`. `adb` is taken from your `PATH`, `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` or `~/Android/Sdk`
+- To take a screenshot, when you press a device's button: `xcrun simctl io <udid> screenshot <file>`, `xcrun devicectl device capture screenshot --timeout 15 --device <id> --destination <file>`, `idevicescreenshot -u <udid> <file>` when `devicectl` can't, or `adb -s <serial> exec-out screencap -p`, run as `/bin/sh -c '"$0" -s "$1" exec-out screencap -p > "$2"'` so the picture's bytes go straight into the file
+- To put the picture on your clipboard: `osascript`, running `set the clipboard to (read (POSIX file <file>) as «class PNGf»)`
+- To make the screenshot folder private: `mkdir -m 700 -p <folder>` and `chmod 700 <folder>`
+
+`<udid>`, `<serial>` and `<id>` are only ever ids the listing commands reported; `<file>` and `<folder>` are paths in the mod's own screenshot folder.
+
+**What it reads.**
+
+- The environment variables `HOME`, `TMPDIR`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, to find the screenshot folder and `adb`
+- The device list `devicectl` writes into the screenshot folder
+- Your prompt box, only when it can't copy a picture to the clipboard: the text and the cursor position, to put an `@path` mention for the picture at the cursor, with a space on either side. It keeps none of that text and sends it nowhere. The mod reads nothing else of the conversation
+
+**What it writes.** The screenshots and that device list, in the private folder described under Use; the `@path` mention above; and one setting in Claude Code's plugin storage: whether you hid the buttons.
+
+**What each hook does.**
+
+- `session.start`: registers the `/device-screenshot` command and starts the 5-second device check, then lets the session start as usual
+- `command.run`, for `/device-screenshot` only: shows the buttons, or hides them with `hide`, and replies with a line saying so. It answers no other command
+- `ui.render` for `AbovePrompt`: draws the row of buttons above the prompt, and leaves the space alone while a survey uses it or the buttons are hidden
+- `ui.render` for `SessionMode`: in the desktop app only, while the buttons are hidden, adds the **screenshots** button to the footer under the prompt. Otherwise it draws the footer as usual
 
 ## License
 
