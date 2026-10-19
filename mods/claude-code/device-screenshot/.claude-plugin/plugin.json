@@ -18,6 +18,5 @@
     "iphone",
     "adb",
     "xcode"
-  ],
-  "types": "./types/index.d.ts"
+  ]
 }
