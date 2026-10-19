@@ -94,6 +94,8 @@ function machine(
     answer,
     devicectl: DEVICECTL_DEVICES,
     ran: [] as string[][],
+    /** The PATH each run was given, by its argv joined with spaces. */
+    paths: new Map<string, string | undefined>(),
     fills: [] as string[],
     toasts: [] as string[],
     redraws: 0,
@@ -113,6 +115,7 @@ function machine(
 
   on('process.run', async ($, e) => {
     world.ran.push([...e.argv])
+    world.paths.set(e.argv.join(' '), e.init?.env?.PATH)
     if (e.argv[0] === '/bin/sh' && world.hold !== undefined) {
       await world.hold
     }
@@ -259,6 +262,22 @@ test('a capturing button spins, shows ✓ for a moment, then its name again', as
 
   await world.clock.advance(1_500)
   expect(await label()).toBe('Galaxy S25')
+})
+
+test('adb is run by name, on PATH and then the Android SDK places, so every command reads in full', async ($, on) => {
+  const env = { TMPDIR: '/var/folders/t/T/', HOME: '/Users/me', PATH: '/usr/bin:/bin', ANDROID_HOME: '/opt/android' }
+  const world = machine(on, tools([PHONE]), { env })
+  await start($)
+  const ui = await mountRow($, 'terminal')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
+
+  const sdk = '/usr/bin:/bin:/opt/android/platform-tools:/Users/me/Library/Android/sdk/platform-tools:/Users/me/Android/Sdk/platform-tools'
+  const adbRuns = [...world.paths.entries()].filter(([argv]) => argv.startsWith('adb ') || argv.includes(' adb '))
+  expect(adbRuns.length).toBeGreaterThan(1)
+  for (const [, path] of adbRuns) {
+    expect(path).toBe(sdk)
+  }
+  expect(world.ran.every(argv => !argv[0]?.includes('/') || argv[0] === '/bin/sh')).toBe(true)
 })
 
 test('devices that share a name are numbered', async ($, on) => {

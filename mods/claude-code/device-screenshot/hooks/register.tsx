@@ -66,19 +66,18 @@ type DevicectlList = {
 
 // Caches for the module's life; a reload reads them again.
 let dirMade: string | undefined
-let adbFound: string | undefined
+let adbEnv: { PATH: string } | undefined
 const androidNames = new Map<string, string>()
 let isRefreshing = false
 let spin = 0
 
-/** Runs a command; undefined when it could not start or ran past its time. */
-async function run(
-  $: EngineInterface,
-  argv: string[],
-  timeoutMs = 30_000,
-): Promise<ProcessRunResult | undefined> {
+// Every command is written out in full where it runs, so the plugin directory's review
+// can read each one; README.md lists them all.
+
+/** A command's result; undefined when it could not start or ran past its time. */
+async function settled(running: Promise<ProcessRunResult>): Promise<ProcessRunResult | undefined> {
   try {
-    return await $.process.run(argv, { timeoutMs })
+    return await running
   } catch {
     return undefined
   }
@@ -124,7 +123,7 @@ function homeOf(home: string | undefined): string | undefined {
  * 700 must succeed, which it does only on a folder this user owns.
  */
 async function makePrivate($: EngineInterface, dir: string, home: string | undefined): Promise<boolean> {
-  if ((await run($, ['mkdir', '-m', '700', '-p', dir]))?.exitCode !== 0) {
+  if ((await settled($.process.run(['mkdir', '-m', '700', '-p', dir])))?.exitCode !== 0) {
     return false
   }
   const made = await $.fs.stat(dir, { resolve: true }).catch(() => undefined)
@@ -134,7 +133,7 @@ async function makePrivate($: EngineInterface, dir: string, home: string | undef
     return false
   }
 
-  return (await run($, ['chmod', '700', dir]))?.exitCode === 0
+  return (await settled($.process.run(['chmod', '700', dir])))?.exitCode === 0
 }
 
 /**
@@ -162,7 +161,7 @@ async function shotsDir($: EngineInterface): Promise<string | undefined> {
 
 async function findIos($: EngineInterface): Promise<Device[]> {
   const found: Device[] = []
-  const sims = await run($, ['xcrun', 'simctl', 'list', 'devices', 'booted', '--json'])
+  const sims = await settled($.process.run(['xcrun', 'simctl', 'list', 'devices', 'booted', '--json']))
   if (sims === undefined) {
     return found
   }
@@ -178,7 +177,7 @@ async function findIos($: EngineInterface): Promise<Device[]> {
   // devicectl writes its JSON to a file; older Xcodes cannot write it to stdout.
   const dir = await shotsDir($)
   const listed = `${dir}/devicectl-devices.json`
-  const phones = dir === undefined ? undefined : await run($, ['xcrun', 'devicectl', 'list', 'devices', '--json-output', listed])
+  const phones = dir === undefined ? undefined : await settled($.process.run(['xcrun', 'devicectl', 'list', 'devices', '--json-output', listed]))
   if (phones?.exitCode === 0) {
     const text = await $.fs.read(listed).catch(() => '')
     for (const phone of parse<DevicectlList>(text)?.result?.devices ?? []) {
@@ -196,30 +195,33 @@ async function findIos($: EngineInterface): Promise<Device[]> {
   return found
 }
 
-async function findAdb($: EngineInterface): Promise<{ adb: string; listed: string } | undefined> {
-  const home = await $.env.get('HOME')
-  const androidHome = await $.env.get('ANDROID_HOME')
-  const sdkRoot = await $.env.get('ANDROID_SDK_ROOT')
-  const places = [
-    adbFound,
-    'adb',
-    androidHome && `${androidHome}/platform-tools/adb`,
-    sdkRoot && `${sdkRoot}/platform-tools/adb`,
-    home && `${home}/Library/Android/sdk/platform-tools/adb`,
-    home && `${home}/Android/Sdk/platform-tools/adb`,
-  ]
-
-  for (const adb of places) {
-    if (adb) {
-      const ran = await run($, [adb, 'devices', '-l'])
-      if (ran !== undefined) {
-        adbFound = adb
-        return { adb, listed: ran.stdout }
-      }
-    }
+/**
+ * The environment `adb` runs in: PATH first, then the Android SDK's usual places,
+ * so the command is always plain `adb`, wherever it is installed.
+ */
+async function androidEnv($: EngineInterface): Promise<{ PATH: string }> {
+  if (adbEnv === undefined) {
+    const home = await $.env.get('HOME')
+    const androidHome = await $.env.get('ANDROID_HOME')
+    const sdkRoot = await $.env.get('ANDROID_SDK_ROOT')
+    const places = [
+      await $.env.get('PATH'),
+      androidHome && `${androidHome}/platform-tools`,
+      sdkRoot && `${sdkRoot}/platform-tools`,
+      home && `${home}/Library/Android/sdk/platform-tools`,
+      home && `${home}/Android/Sdk/platform-tools`,
+    ]
+    adbEnv = { PATH: places.filter(place => place).join(':') }
   }
 
-  return undefined
+  return adbEnv
+}
+
+/** What `adb devices -l` lists; undefined when there is no adb. */
+async function listAdb($: EngineInterface): Promise<string | undefined> {
+  const ran = await settled($.process.run(['adb', 'devices', '-l'], { env: await androidEnv($) }))
+
+  return ran?.stdout
 }
 
 /**
@@ -227,7 +229,7 @@ async function findAdb($: EngineInterface): Promise<{ adb: string; listed: strin
  * ("Galaxy S25"), else its model. Never the name set in Settings, which can hold
  * the owner's name. Every emulator is "Android Emulator".
  */
-async function androidName($: EngineInterface, adb: string, serial: string, model: string): Promise<string> {
+async function androidName($: EngineInterface, serial: string, model: string): Promise<string> {
   const known = androidNames.get(serial)
   if (known !== undefined) {
     return known
@@ -235,13 +237,14 @@ async function androidName($: EngineInterface, adb: string, serial: string, mode
 
   let name = 'Android Emulator'
   if (!serial.startsWith('emulator-')) {
-    const ask = async (args: string[]) => {
-      const said = (await run($, [adb, '-s', serial, 'shell', ...args]))?.stdout.trim() ?? ''
-      return said === 'null' ? '' : said
+    const env = await androidEnv($)
+    const said = (ran: ProcessRunResult | undefined) => {
+      const text = ran?.stdout.trim() ?? ''
+      return text === 'null' ? '' : text
     }
     // What a device says about itself is the device's to choose: one clean, short line.
-    name = clean(await ask(['getprop', 'ro.product.marketname'])) ||
-      clean(await ask(['settings', 'get', 'global', 'default_device_name'])) ||
+    name = clean(said(await settled($.process.run(['adb', '-s', serial, 'shell', 'getprop', 'ro.product.marketname'], { env })))) ||
+      clean(said(await settled($.process.run(['adb', '-s', serial, 'shell', 'settings', 'get', 'global', 'default_device_name'], { env })))) ||
       clean(model) ||
       'Android device'
   }
@@ -252,20 +255,20 @@ async function androidName($: EngineInterface, adb: string, serial: string, mode
 
 /** Android devices and emulators ready for adb; an unauthorized or offline one is left out. */
 async function findAndroid($: EngineInterface): Promise<Device[]> {
-  const found = await findAdb($)
-  if (found === undefined) {
+  const listed = await listAdb($)
+  if (listed === undefined) {
     return []
   }
 
   const ready: Device[] = []
-  for (const line of found.listed.split('\n')) {
+  for (const line of listed.split('\n')) {
     const [serial, state, ...rest] = line.trim().split(/\s+/)
     if (serial === undefined || state === undefined || serial.startsWith('*') || serial === 'List') {
       continue
     }
     if (state === 'device') {
       const model = rest.join(' ').match(/\bmodel:(\S+)/)?.[1]?.replaceAll('_', ' ') ?? serial
-      const name = await androidName($, found.adb, serial, model)
+      const name = await androidName($, serial, model)
       ready.push({ id: serial, name, platform: 'android', kind: 'android' })
     }
   }
@@ -315,24 +318,25 @@ async function refresh($: EngineInterface, isFresh = false): Promise<void> {
 async function shoot($: EngineInterface, device: Device, path: string): Promise<string | undefined> {
   let ran: ProcessRunResult | undefined
   if (device.kind === 'simulator') {
-    ran = await run($, ['xcrun', 'simctl', 'io', device.id, 'screenshot', path])
+    ran = await settled($.process.run(['xcrun', 'simctl', 'io', device.id, 'screenshot', path]))
   } else if (device.kind === 'iphone') {
     // An iPhone that just dropped off makes devicectl wait for it; cap the wait.
-    const argv = ['xcrun', 'devicectl', 'device', 'capture', 'screenshot', '--timeout', '15']
-    ran = await run($, [...argv, '--device', device.id, '--destination', path], 20_000)
+    ran = await settled(
+      $.process.run(
+        ['xcrun', 'devicectl', 'device', 'capture', 'screenshot', '--timeout', '15', '--device', device.id, '--destination', path],
+        { timeoutMs: 20_000 },
+      ),
+    )
     if (ran?.exitCode !== 0) {
       // An older devicectl has no `capture`; libimobiledevice may still work.
-      const fallback = await run($, ['idevicescreenshot', '-u', device.id, path], 20_000)
+      const fallback = await settled($.process.run(['idevicescreenshot', '-u', device.id, path], { timeoutMs: 20_000 }))
       ran = fallback?.exitCode === 0 ? fallback : ran
     }
   } else {
-    const adb = adbFound ?? (await findAdb($))?.adb
-    if (adb === undefined) {
-      return 'adb was not found: install Android platform-tools or set ANDROID_HOME.'
-    }
-    // `exec-out` keeps the PNG's bytes intact; a shell redirect writes them.
-    const script = '"$0" -s "$1" exec-out screencap -p > "$2"'
-    ran = await run($, ['/bin/sh', '-c', script, adb, device.id, path])
+    // `exec-out` keeps the PNG's bytes intact; a shell redirect writes them, and the
+    // shell finds `adb` on the PATH `androidEnv` gives it.
+    const env = await androidEnv($)
+    ran = await settled($.process.run(['/bin/sh', '-c', '"$0" -s "$1" exec-out screencap -p > "$2"', 'adb', device.id, path], { env }))
   }
 
   if (ran === undefined) {
@@ -361,8 +365,18 @@ function slugOf(name: string): string {
 
 /** Puts the picture on the macOS clipboard as a PNG, so a paste attaches it as an image. */
 async function copyImage($: EngineInterface, path: string): Promise<boolean> {
-  const script = ['on run argv', 'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)', 'end run']
-  const ran = await run($, ['osascript', ...script.flatMap(line => ['-e', line]), path])
+  const ran = await settled(
+    $.process.run([
+      'osascript',
+      '-e',
+      'on run argv',
+      '-e',
+      'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)',
+      '-e',
+      'end run',
+      path,
+    ]),
+  )
 
   return ran?.exitCode === 0
 }
