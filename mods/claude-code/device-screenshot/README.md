@@ -38,7 +38,7 @@ Answer `y` to add the marketplace, then pick a scope.
 ## Use
 
 - **iOS**: a button for each booted iOS simulator (`xcrun simctl io <udid> screenshot`) and each connected iPhone or iPad (`xcrun devicectl device capture screenshot`). This was tested with Xcode 27. If your `devicectl` can't capture, the mod falls back to `idevicescreenshot` from libimobiledevice when it's installed.
-- **Android**: a button for each device and emulator `adb devices` lists as ready (`adb exec-out screencap -p`). The mod looks for `adb` on `PATH`, then in `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk`.
+- **Android**: a button for each device and emulator `adb devices` lists as ready (`adb shell screencap`, then `adb pull`). The mod looks for `adb` on `PATH`, then in `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk`.
 
 How a button names its device:
 
@@ -57,10 +57,10 @@ Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you c
 
 **Programs it starts, and why.** The mod starts programs through Claude Code's process call, and each command is written out in full where it runs in `hooks/register.tsx`. These are all of them. They talk only to your own devices, over USB or the local network a device is paired on.
 
-- To find iOS devices, every 5 seconds while the buttons show and when you press **↻**: `xcrun simctl list devices booted --json` and `xcrun devicectl list devices --json-output <file>`
+- To find iOS devices, every 5 seconds while the buttons show and when you press **↻**: `xcrun simctl list devices booted --json` and `xcrun devicectl list devices --json-output /dev/stdout`
 - To find Android devices, on the same checks: `adb devices -l`. To name a phone, once each: `adb -s <serial> shell getprop ro.product.marketname` and `adb -s <serial> shell settings get global default_device_name`. `adb` always runs by that name: the mod sets its `PATH` to yours followed by the `platform-tools` folders in `$ANDROID_HOME`, `$ANDROID_SDK_ROOT`, `~/Library/Android/sdk` and `~/Android/Sdk`
-- To take a screenshot, when you press a device's button: `xcrun simctl io <udid> screenshot <file>`, `xcrun devicectl device capture screenshot --timeout 15 --device <id> --destination <file>`, `idevicescreenshot -u <udid> <file>` when `devicectl` can't, or `adb -s <serial> exec-out screencap -p`, run as `/bin/sh -c '"$0" -s "$1" exec-out screencap -p > "$2"'` so the picture's bytes go straight into the file
-- To put the picture on your clipboard: `osascript`, running `set the clipboard to (read (POSIX file <file>) as «class PNGf»)`
+- To take a screenshot, when you press a device's button: `xcrun simctl io <udid> screenshot <file>`, `xcrun devicectl device capture screenshot --timeout 15 --device <id> --destination <file>`, `idevicescreenshot -u <udid> <file>` when `devicectl` can't, or for Android `adb -s <serial> shell screencap -p /data/local/tmp/device-screenshot.png`, then `adb -s <serial> pull /data/local/tmp/device-screenshot.png <file>` and `adb -s <serial> shell rm -f /data/local/tmp/device-screenshot.png`, which leaves nothing behind on the phone
+- To put the picture on your clipboard: `osascript <mod folder>/scripts/copy-image.applescript <file>`. That file is three lines, which set the clipboard to the PNG at `<file>`
 - To make the screenshot folder private: `mkdir -m 700 -p <folder>` and `chmod 700 <folder>`
 
 `<udid>`, `<serial>` and `<id>` are only ever ids the listing commands reported; `<file>` and `<folder>` are paths in the mod's own screenshot folder.
@@ -68,10 +68,11 @@ Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you c
 **What it reads.**
 
 - The environment variables `HOME`, `TMPDIR`, `PATH`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, to find the screenshot folder and `adb`
-- The device list `devicectl` writes into the screenshot folder
-- Your prompt box, only when it can't copy a picture to the clipboard: the text and the cursor position, to put an `@path` mention for the picture at the cursor, with a space on either side. It keeps none of that text and sends it nowhere. The mod reads nothing else of the conversation
+- What the commands above print: the device lists, and an error line when a capture fails
 
-**What it writes.** The screenshots and that device list, in the private folder described under Use; the `@path` mention above; and one setting in Claude Code's plugin storage: whether you hid the buttons.
+It reads no file and none of the conversation, your prompt box included.
+
+**What it writes.** The screenshots, in the private folder described under Use; a `@path` mention for a picture into your prompt, at the cursor, only when it can't copy that picture to the clipboard; and one setting in Claude Code's plugin storage: whether you hid the buttons.
 
 **What each hook does.**
 

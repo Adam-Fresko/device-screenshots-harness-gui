@@ -174,13 +174,11 @@ async function findIos($: EngineInterface): Promise<Device[]> {
     }
   }
 
-  // devicectl writes its JSON to a file; older Xcodes cannot write it to stdout.
-  const dir = await shotsDir($)
-  const listed = `${dir}/devicectl-devices.json`
-  const phones = dir === undefined ? undefined : await settled($.process.run(['xcrun', 'devicectl', 'list', 'devices', '--json-output', listed]))
+  // devicectl writes its JSON only to a file it is named, here its own standard output.
+  const phones = await settled($.process.run(['xcrun', 'devicectl', 'list', 'devices', '--json-output', '/dev/stdout']))
   if (phones?.exitCode === 0) {
-    const text = await $.fs.read(listed).catch(() => '')
-    for (const phone of parse<DevicectlList>(text)?.result?.devices ?? []) {
+    const json = phones.stdout.slice(Math.max(0, phones.stdout.indexOf('{')))
+    for (const phone of parse<DevicectlList>(json)?.result?.devices ?? []) {
       const hardware = phone.hardwareProperties ?? {}
       const link = phone.connectionProperties ?? {}
       const id = hardware.udid ?? phone.identifier
@@ -333,10 +331,14 @@ async function shoot($: EngineInterface, device: Device, path: string): Promise<
       ran = fallback?.exitCode === 0 ? fallback : ran
     }
   } else {
-    // `exec-out` keeps the PNG's bytes intact; a shell redirect writes them, and the
-    // shell finds `adb` on the PATH `androidEnv` gives it.
+    // The phone saves the picture in its own temp folder, adb copies it here, and the
+    // phone's copy goes: no shell, so its bytes reach the file as the phone wrote them.
     const env = await androidEnv($)
-    ran = await settled($.process.run(['/bin/sh', '-c', '"$0" -s "$1" exec-out screencap -p > "$2"', 'adb', device.id, path], { env }))
+    ran = await settled($.process.run(['adb', '-s', device.id, 'shell', 'screencap', '-p', '/data/local/tmp/device-screenshot.png'], { env }))
+    if (ran?.exitCode === 0) {
+      ran = await settled($.process.run(['adb', '-s', device.id, 'pull', '/data/local/tmp/device-screenshot.png', path], { env }))
+    }
+    await settled($.process.run(['adb', '-s', device.id, 'shell', 'rm', '-f', '/data/local/tmp/device-screenshot.png'], { env }))
   }
 
   if (ran === undefined) {
@@ -365,30 +367,16 @@ function slugOf(name: string): string {
 
 /** Puts the picture on the macOS clipboard as a PNG, so a paste attaches it as an image. */
 async function copyImage($: EngineInterface, path: string): Promise<boolean> {
-  const ran = await settled(
-    $.process.run([
-      'osascript',
-      '-e',
-      'on run argv',
-      '-e',
-      'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)',
-      '-e',
-      'end run',
-      path,
-    ]),
-  )
+  // The AppleScript is a file of the mod's, not an inline script: scripts/copy-image.applescript.
+  const ran = await settled($.process.run(['osascript', `${$.plugin.root}/scripts/copy-image.applescript`, path]))
 
   return ran?.exitCode === 0
 }
 
 /** Without a clipboard to copy to: an `@path` mention, which attaches the picture on send. */
 async function mention($: EngineInterface, path: string): Promise<boolean> {
-  const box = await $.prompt.read()
-  const before = box.text.slice(0, box.cursor)
-  const after = box.text.slice(box.cursor)
-  const lead = before === '' || /\s$/.test(before) ? '' : ' '
-  const trail = /^\s/.test(after) ? '' : ' '
-  const filled = await $.prompt.fill({ text: `${lead}@${path}${trail}`, mode: 'insert' })
+  // Spaced on both sides without reading the prompt: the mod reads none of the conversation.
+  const filled = await $.prompt.fill({ text: ` @${path} `, mode: 'insert' })
 
   return filled.isFilled
 }

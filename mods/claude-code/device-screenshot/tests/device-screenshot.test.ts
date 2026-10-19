@@ -67,13 +67,23 @@ function tools(adbLines: string[]): Answer {
     if (argv.includes('default_device_name')) return ok('Galaxy S25\n')
     if (argv.includes('device_name')) return ok('Urządzenie S25 użytkownika Adam\n')
     if (argv.includes('ro.product.marketname')) return ok('\n')
-    if (argv[0] === '/bin/sh' || argv[0] === 'osascript') return ok()
+    if (argv[0] === 'osascript' || (argv[0] === 'adb' && ['screencap', 'pull', 'rm'].some(word => argv.includes(word)))) return ok()
     return undefined
   }
 }
 
-function copied(path: string): string[] {
-  return ['osascript', '-e', 'on run argv', '-e', 'set the clipboard to (read (POSIX file (item 1 of argv)) as «class PNGf»)', '-e', 'end run', path]
+/** The phone's own temp file an Android capture goes through. */
+const ON_PHONE = '/data/local/tmp/device-screenshot.png'
+
+/** Whether a command is an Android capture: the phone saving its screen. */
+function isCapture(argv: readonly string[]): boolean {
+  return argv[0] === 'adb' && argv.includes('screencap')
+}
+
+/** Whether a command copies the picture at `path` with the mod's own AppleScript file. */
+function copies(path: string) {
+  return (argv: readonly string[]) =>
+    argv.length === 3 && argv[0] === 'osascript' && (argv[1] ?? '').endsWith('/scripts/copy-image.applescript') && argv[2] === path
 }
 
 /**
@@ -99,6 +109,8 @@ function machine(
     fills: [] as string[],
     toasts: [] as string[],
     redraws: 0,
+    /** Files and prompt text the mod read: none, ever. */
+    reads: 0,
     /** While set, screencap waits for it: a capture the test can look at mid-way. */
     hold: undefined as Promise<void> | undefined,
     /** What `$.fs.stat` says of a path: the screenshot folder a folder, everything else a file. */
@@ -116,20 +128,29 @@ function machine(
   on('process.run', async ($, e) => {
     world.ran.push([...e.argv])
     world.paths.set(e.argv.join(' '), e.init?.env?.PATH)
-    if (e.argv[0] === '/bin/sh' && world.hold !== undefined) {
+    if (isCapture(e.argv) && world.hold !== undefined) {
       await world.hold
     }
-    const result = e.argv[0] === 'mkdir' ? ok() : e.argv[0] === 'chmod' ? world.chmod : world.answer(e.argv)
+    const answered = e.argv[0] === 'mkdir' ? ok() : e.argv[0] === 'chmod' ? world.chmod : world.answer(e.argv)
+    // devicectl writes its device list to its standard output.
+    const isPhoneList = e.argv.slice(0, 3).join(' ') === 'xcrun devicectl list'
+    const result = isPhoneList && answered?.exitCode === 0 ? ok(world.devicectl) : answered
     return result === undefined ? { deny: `${e.argv[0]}: not found` } : { value: result }
   })
   on('fs.stat', ($, e) => ({ value: world.statOf(e.path) }))
-  on('fs.read', () => ({ value: world.devicectl }))
+  on('fs.read', $ => {
+    world.reads += 1
+    return { value: '' }
+  })
   on('ui.invalidate', async ($, e, next) => {
     const done = await next(e)
     world.redraws += 1
     return done
   })
-  on('prompt.read', () => ({ value: { text: 'look at', cursor: 7 } }))
+  on('prompt.read', () => {
+    world.reads += 1
+    return { value: { text: 'look at', cursor: 7 } }
+  })
   on('prompt.fill', ($, e) => {
     world.fills.push(e.text)
     return { isFilled: true }
@@ -213,9 +234,11 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await shoot(ui, world, 'shot:RFCYA08AC7R')
 
     const shot = `${DIR}/android-Galaxy-S25-${STAMP}.png`
-    expect(world.ran).toContainEqual(['/bin/sh', '-c', '"$0" -s "$1" exec-out screencap -p > "$2"', 'adb', 'RFCYA08AC7R', shot])
-    expect(world.ran).toContainEqual(copied(shot))
-    expect(world.ran.some(argv => argv[0] === '/bin/sh' && argv.includes('emulator-5554'))).toBe(false)
+    expect(world.ran).toContainEqual(['adb', '-s', 'RFCYA08AC7R', 'shell', 'screencap', '-p', ON_PHONE])
+    expect(world.ran).toContainEqual(['adb', '-s', 'RFCYA08AC7R', 'pull', ON_PHONE, shot])
+    expect(world.ran).toContainEqual(['adb', '-s', 'RFCYA08AC7R', 'shell', 'rm', '-f', ON_PHONE])
+    expect(world.ran.some(copies(shot))).toBe(true)
+    expect(world.ran.some(argv => isCapture(argv) && argv.includes('emulator-5554'))).toBe(false)
     const paste = surface === 'terminal' ? 'Ctrl+V' : '⌘V'
     expect(world.toasts).toEqual([`Galaxy S25 copied. Press ${paste} to attach it.`])
     expect(world.fills).toEqual([])
@@ -226,7 +249,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
 test('a failed capture says why in a toast and fills nothing', async ($, on) => {
   const world = machine(on, tools([PHONE]))
   const working = world.answer
-  world.answer = argv => (argv[0] === '/bin/sh' ? failed('error: device offline') : working(argv))
+  world.answer = argv => (isCapture(argv) ? failed('error: device offline') : working(argv))
   await start($)
   const ui = await mountRow($, 'desktop')
   await shoot(ui, world, 'shot:RFCYA08AC7R')
@@ -277,7 +300,9 @@ test('adb is run by name, on PATH and then the Android SDK places, so every comm
   for (const [, path] of adbRuns) {
     expect(path).toBe(sdk)
   }
-  expect(world.ran.every(argv => !argv[0]?.includes('/') || argv[0] === '/bin/sh')).toBe(true)
+  expect(world.ran.every(argv => !argv[0]?.includes('/'))).toBe(true)
+  expect(world.ran.some(argv => argv.includes('-c') || argv.includes('-e'))).toBe(false)
+  expect(world.reads).toBe(0)
 })
 
 test('devices that share a name are numbered', async ($, on) => {
@@ -480,9 +505,12 @@ test('desktop draws a black-and-white Apple or Android logo before each device; 
   expect(await terminal.findAll({ type: 'Svg' })).toEqual([])
 })
 
-test('the screenshot folder is made private', async ($, on) => {
+test('the screenshot folder is made private, at the first capture', async ($, on) => {
   const world = machine(on, tools([PHONE]))
   await start($)
+  expect(world.ran.some(argv => argv[0] === 'mkdir')).toBe(false)
+  const ui = await mountRow($, 'desktop')
+  await shoot(ui, world, 'shot:RFCYA08AC7R')
 
   expect(world.ran).toContainEqual(['mkdir', '-m', '700', '-p', DIR])
   expect(world.ran).toContainEqual(['chmod', '700', DIR])
@@ -496,7 +524,7 @@ for (const tmp of [undefined, '/tmp', '/private/tmp/'] as const) {
     const ui = await mountRow($, 'desktop')
     await shoot(ui, world, 'shot:RFCYA08AC7R')
 
-    expect(world.ran).toContainEqual(copied(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))
+    expect(world.ran.some(copies(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))).toBe(true)
   })
 }
 
@@ -509,7 +537,7 @@ test('a screenshot folder that is a symlink is refused: nothing is captured, and
   await shoot(ui, world, 'shot:RFCYA08AC7R')
 
   expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
-  expect(world.ran.some(argv => argv[0] === '/bin/sh' || argv.includes('devicectl'))).toBe(false)
+  expect(world.ran.some(argv => isCapture(argv) || argv.includes('capture'))).toBe(false)
 })
 
 test('a capture that comes back as a symlink is not copied', async ($, on) => {
@@ -547,7 +575,7 @@ test('a screenshot folder someone else owns is refused: nothing is captured', as
   await shoot(ui, world, 'shot:RFCYA08AC7R')
 
   expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
-  expect(world.ran.some(argv => argv[0] === '/bin/sh')).toBe(false)
+  expect(world.ran.some(isCapture)).toBe(false)
 })
 
 test('a TMPDIR outside the home folder and the per-user temp areas falls back to ~/.cache', async ($, on) => {
@@ -556,7 +584,7 @@ test('a TMPDIR outside the home folder and the per-user temp areas falls back to
   const ui = await mountRow($, 'desktop')
   await shoot(ui, world, 'shot:RFCYA08AC7R')
 
-  expect(world.ran).toContainEqual(copied(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))
+  expect(world.ran.some(copies(`/Users/me/.cache/claude-device-screenshots/android-Galaxy-S25-${STAMP}.png`))).toBe(true)
 })
 
 test('invisible and right-to-left characters are taken out of a device name', async ($, on) => {
@@ -596,7 +624,7 @@ test('an empty HOME is no home folder: a TMPDIR outside the allowed places is re
   await shoot(ui, world, 'shot:RFCYA08AC7R')
 
   expect(world.toasts).toEqual(['Could not make a private folder for screenshots.'])
-  expect(world.ran.some(argv => argv[0] === '/bin/sh')).toBe(false)
+  expect(world.ran.some(isCapture)).toBe(false)
 })
 
 test('tag characters go, and a name ends at any line break', async ($, on) => {
