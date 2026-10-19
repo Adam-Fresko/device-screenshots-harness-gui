@@ -1,0 +1,27 @@
+{
+  "name": "device-screenshot",
+  "version": "0.1.0",
+  "description": "Buttons that screenshot a connected iOS or Android device and attach the picture to your message.",
+  "author": { "name": "Adam Fresko" },
+  "homepage": "https://github.com/Adam-Fresko/mods-harness-gui/tree/main/mods/codex/device-screenshot",
+  "repository": "https://github.com/Adam-Fresko/mods-harness-gui",
+  "keywords": ["screenshot", "ios", "android", "simulator", "emulator", "iphone", "adb", "xcode"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Device Screenshot",
+    "shortDescription": "Screenshot a connected iOS or Android device into your message",
+    "longDescription": "A panel with a button for each booted iOS simulator, connected iPhone or iPad, and Android device or emulator. Press one to screenshot that device: the picture is added to your message as an attachment. Codex can also take a device's screenshot itself when you ask.",
+    "developerName": "Adam Fresko",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Read"],
+    "defaultPrompt": [
+      "Show the device screenshot buttons",
+      "Screenshot my iPhone and tell me what is on screen"
+    ],
+    "brandColor": "#3A3A3C",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg",
+    "logoDark": "./assets/icon-dark.svg"
+  }
+}

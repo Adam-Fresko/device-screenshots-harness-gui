@@ -1,0 +1,4 @@
+interface:
+  display_name: "Device Screenshot"
+  short_description: "Screenshot a connected iOS or Android device"
+  default_prompt: "Show the device screenshot buttons"

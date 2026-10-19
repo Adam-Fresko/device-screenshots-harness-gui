@@ -25,6 +25,7 @@ codex plugin add <mod>@mods-harness-gui
 | App | Mod | What it does |
 | --- | --- | --- |
 | Claude Code | [device-screenshot](mods/claude-code/device-screenshot) | Buttons above the prompt that screenshot a connected iOS or Android device and attach the picture to your message. |
+| Codex | [device-screenshot](mods/codex/device-screenshot) | A panel of buttons that screenshot a connected iOS or Android device and add the picture to your message. Codex can also take the screenshot itself. |
 
 ## Layout
 

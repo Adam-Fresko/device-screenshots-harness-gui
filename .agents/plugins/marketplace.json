@@ -3,5 +3,18 @@
   "interface": {
     "displayName": "Mods Harness GUI"
   },
-  "plugins": []
+  "plugins": [
+    {
+      "name": "device-screenshot",
+      "source": {
+        "source": "local",
+        "path": "./mods/codex/device-screenshot"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
 }

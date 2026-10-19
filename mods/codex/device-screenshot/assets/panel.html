@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Device screenshots</title>
+<style>
+  :root {
+    color-scheme: light;
+    --text: #1d1d1f;
+    --dim: #6e6e73;
+    --line: rgba(0, 0, 0, 0.14);
+    --fill: rgba(0, 0, 0, 0.04);
+    --hover: rgba(0, 0, 0, 0.08);
+    --good: #1a7f37;
+    --bad: #c62828;
+    font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --text: #f2f2f2;
+    --dim: #a1a1a6;
+    --line: rgba(255, 255, 255, 0.16);
+    --fill: rgba(255, 255, 255, 0.05);
+    --hover: rgba(255, 255, 255, 0.1);
+    --good: #4ac26b;
+    --bad: #ff6b6b;
+  }
+  html, body { margin: 0; background: transparent; color: var(--text); }
+  body { padding: 8px 10px; }
+  .row { display: flex; align-items: flex-start; gap: 6px; }
+  .devices { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1; min-width: 0; }
+  .side { display: flex; gap: 2px; }
+  button {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 28px; padding: 0 10px;
+    font: inherit; color: inherit;
+    background: var(--fill); border: 1px solid var(--line); border-radius: 8px;
+    cursor: pointer; white-space: nowrap;
+  }
+  button:hover:not(:disabled) { background: var(--hover); }
+  button:disabled { cursor: default; opacity: 0.55; }
+  button:focus-visible { outline: 2px solid #0a84ff; outline-offset: 1px; }
+  button.plain { background: transparent; border-color: transparent; color: var(--dim); padding: 0 8px; }
+  button.plain:hover:not(:disabled) { background: var(--fill); color: var(--text); }
+  button svg { width: 14px; height: 14px; flex: none; fill: currentColor; }
+  .mark { display: inline-block; min-width: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+  .mark.good { color: var(--good); }
+  .mark.bad { color: var(--bad); }
+  .note { color: var(--dim); }
+  .status { margin-top: 6px; color: var(--dim); overflow-wrap: anywhere; }
+  .status.bad { color: var(--bad); }
+  .help { margin-top: 6px; color: var(--dim); max-width: 62ch; }
+  .help p { margin: 0 0 4px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="devices" id="devices" role="group" aria-label="Devices"></div>
+    <div class="side">
+      <button class="plain" id="help-toggle" type="button" aria-expanded="false" title="How this works">?</button>
+    </div>
+  </div>
+  <div class="status" id="status" role="status" hidden></div>
+  <div class="help" id="help" hidden>
+    <p>Press a device to screenshot it. The picture is added to your message as an attachment, and nothing is sent until you send it.</p>
+    <p>↻ looks for devices again. While this panel is on screen, the list also updates every 5 seconds.</p>
+    <p>Lists booted iOS simulators and connected iPhones and iPads (needs Xcode), and Android devices and emulators (needs adb).</p>
+    <p>To keep these buttons open while you work, open Device screenshots from the side panel's menu, or from the sidebar.</p>
+  </div>
+<script>
+(() => {
+  'use strict'
+
+  const VERSION = '__VERSION__'
+  const POLL_MS = 5_000
+  const SPIN_MS = 100
+  const DONE_MS = 1_500
+  const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+  // Black-and-white platform logos, in the text's colour. Apple's shape is Simple Icons' (CC0).
+  const LOGO = {
+    ios: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></svg>',
+    android: '<svg viewBox="0 4 24 16" aria-hidden="true"><path d="M7.3 10.3 5.2 6.4M16.7 10.3l2.1-3.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path fill-rule="evenodd" d="M2 19a10 10 0 0 1 20 0zM9.7 15a1.2 1.2 0 1 1-2.4 0a1.2 1.2 0 1 1 2.4 0zM16.7 15a1.2 1.2 0 1 1-2.4 0a1.2 1.2 0 1 1 2.4 0z"/></svg>',
+  }
+
+  const $devices = document.getElementById('devices')
+  const $status = document.getElementById('status')
+  const $help = document.getElementById('help')
+  const $helpToggle = document.getElementById('help-toggle')
+
+  // The host's theme comes with its first answer; until then, the system's.
+  document.documentElement.dataset.theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+
+  let devices = []
+  let hasListed = false
+  let busy = null
+  let done = null
+  let spin = 0
+  let isLooking = false
+  let wantsFresh = false
+  let isOnScreen = true
+
+  // MCP Apps: JSON-RPC 2.0 with the host, over postMessage.
+  let nextId = 1
+  const pending = new Map()
+
+  function request(method, params) {
+    const id = nextId++
+    window.parent.postMessage({ jsonrpc: '2.0', id, method, params }, '*')
+    return new Promise((resolve, reject) => pending.set(id, { resolve, reject }))
+  }
+
+  function notify(method, params) {
+    window.parent.postMessage({ jsonrpc: '2.0', method, params }, '*')
+  }
+
+  window.addEventListener('message', event => {
+    if (event.source !== window.parent) return
+    const message = event.data
+    if (message === null || typeof message !== 'object' || message.jsonrpc !== '2.0') return
+
+    if (message.method === undefined) {
+      const waiting = pending.get(message.id)
+      if (waiting === undefined) return
+      pending.delete(message.id)
+      if (message.error) waiting.reject(new Error(message.error.message || 'The app host refused the request.'))
+      else waiting.resolve(message.result)
+      return
+    }
+
+    if (message.id !== undefined) {
+      // The host's own requests: teardown and ping need only an answer.
+      const known = message.method === 'ui/resource-teardown' || message.method === 'ping'
+      window.parent.postMessage(
+        known
+          ? { jsonrpc: '2.0', id: message.id, result: {} }
+          : { jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'Method not found' } },
+        '*',
+      )
+      return
+    }
+
+    if (message.method === 'ui/notifications/tool-result') {
+      take(message.params)
+    } else if (message.method === 'ui/notifications/host-context-changed') {
+      useContext(message.params)
+    }
+  })
+
+  function textOf(result) {
+    return (result?.content ?? []).filter(part => part.type === 'text').map(part => part.text).join(' ').trim()
+  }
+
+  /** A list_devices or open_panel result: redraws the buttons when its devices changed. */
+  function take(result) {
+    const list = result?.structuredContent?.devices
+    if (Array.isArray(list)) {
+      const isChanged = !hasListed || JSON.stringify(list) !== JSON.stringify(devices)
+      devices = list
+      hasListed = true
+      if (isChanged) render()
+    }
+  }
+
+  function useContext(context) {
+    if (context === null || typeof context !== 'object') return
+    if (context.theme === 'light' || context.theme === 'dark') {
+      document.documentElement.dataset.theme = context.theme
+    }
+    const variables = context.styles?.variables
+    if (variables && typeof variables === 'object') {
+      for (const [name, value] of Object.entries(variables)) {
+        if (typeof value === 'string' && name.startsWith('--')) document.documentElement.style.setProperty(name, value)
+      }
+    }
+  }
+
+  function say(text, isBad = false) {
+    $status.textContent = text
+    $status.hidden = text === ''
+    $status.classList.toggle('bad', isBad)
+  }
+
+  function button(label, onPress, options = {}) {
+    const element = document.createElement('button')
+    element.type = 'button'
+    if (options.className) element.className = options.className
+    if (options.title) element.title = options.title
+    if (options.logo) element.insertAdjacentHTML('beforeend', options.logo)
+    if (options.mark !== undefined) {
+      const mark = document.createElement('span')
+      mark.className = `mark ${options.markClass ?? ''}`
+      mark.textContent = options.mark
+      element.append(mark)
+    }
+    element.append(document.createTextNode(label))
+    element.disabled = options.disabled === true
+    element.addEventListener('click', onPress)
+    return element
+  }
+
+  function render() {
+    const parts = [
+      button('↻', () => look(true), { title: 'Look for devices again', disabled: isLooking }),
+    ]
+    for (const device of devices) {
+      const isRunning = busy === device.id
+      const isDone = done?.id === device.id
+      const mark = isRunning ? SPINNER[spin % SPINNER.length] : isDone ? (done.isOk ? '✓' : '✕') : undefined
+      parts.push(button(device.name, () => shoot(device), {
+        logo: mark === undefined ? LOGO[device.platform] : undefined,
+        mark,
+        markClass: isDone ? (done.isOk ? 'good' : 'bad') : '',
+        title: `Screenshot ${device.name}`,
+        disabled: busy !== null && !isRunning,
+      }))
+    }
+    if (hasListed && devices.length === 0) {
+      const note = document.createElement('span')
+      note.className = 'note'
+      note.textContent = 'No device connected. Boot a simulator or emulator, or plug in a phone.'
+      parts.push(note)
+    }
+    $devices.replaceChildren(...parts)
+  }
+
+  /**
+   * Reads the connected devices again. `isFresh` (the person's ↻) also reads the
+   * phones' names again and says when it fails; one pressed during a timed check
+   * runs right after it.
+   */
+  async function look(isFresh = false) {
+    if (isLooking) {
+      wantsFresh ||= isFresh
+      return
+    }
+    isLooking = true
+    if (isFresh) render()
+    try {
+      const result = await request('tools/call', { name: 'list_devices', arguments: isFresh ? { fresh: true } : {} })
+      if (result?.isError) throw new Error(textOf(result) || 'Could not look for devices.')
+      isLooking = false
+      take(result)
+      if (isFresh && $status.classList.contains('bad')) say('')
+    } catch (error) {
+      if (isFresh) say(`Could not look for devices: ${error.message}`, true)
+    } finally {
+      isLooking = false
+      if (isFresh) render()
+    }
+    if (wantsFresh) {
+      wantsFresh = false
+      void look(true)
+    }
+  }
+
+  function decode(base64) {
+    const bytes = atob(base64)
+    const out = new Uint8Array(bytes.length)
+    for (let i = 0; i < bytes.length; i += 1) out[i] = bytes.charCodeAt(i)
+    return out
+  }
+
+  /** Adds the picture to the message being written; else copies it for a paste. */
+  async function attach(image, device, path) {
+    try {
+      await request('ui/message', {
+        role: 'user',
+        content: [{ type: 'image', data: image.data, mimeType: image.mimeType }],
+        _meta: { 'openai/message': { send: false } },
+      })
+      return `${device.name} added to your message.`
+    } catch (attachError) {
+      try {
+        const blob = new Blob([decode(image.data)], { type: image.mimeType })
+        await navigator.clipboard.write([new ClipboardItem({ [image.mimeType]: blob })])
+        return `${device.name} copied. Press ⌘V in the message box to attach it.`
+      } catch {
+        const saved = typeof path === 'string' ? ` It is saved at ${path}.` : ''
+        throw new Error(`Could not add ${device.name} to your message: ${attachError.message.replace(/\.$/, '')}.${saved}`)
+      }
+    }
+  }
+
+  async function shoot(device) {
+    if (busy !== null) return
+    busy = device.id
+    done = null
+    say('')
+    const spinning = setInterval(() => {
+      spin += 1
+      render()
+    }, SPIN_MS)
+    render()
+
+    let isOk = false
+    try {
+      const result = await request('tools/call', { name: 'take_screenshot', arguments: { device: device.id } })
+      const image = (result?.content ?? []).find(part => part.type === 'image')
+      if (result?.isError || image === undefined) throw new Error(textOf(result) || `${device.name}: no picture came back.`)
+      say(await attach(image, device, result.structuredContent?.path))
+      isOk = true
+    } catch (error) {
+      say(error.message, true)
+    } finally {
+      clearInterval(spinning)
+      busy = null
+      done = { id: device.id, isOk }
+      render()
+      setTimeout(() => {
+        if (done?.id === device.id) {
+          done = null
+          render()
+        }
+      }, DONE_MS)
+    }
+  }
+
+  $helpToggle.addEventListener('click', () => {
+    $help.hidden = !$help.hidden
+    $helpToggle.setAttribute('aria-expanded', String(!$help.hidden))
+  })
+
+  // Only a panel on screen keeps looking: one scrolled away or in a hidden tab rests.
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(entries => {
+      isOnScreen = entries.some(entry => entry.isIntersecting)
+    }).observe(document.body)
+  }
+  setInterval(() => {
+    if (isOnScreen && document.visibilityState === 'visible' && busy === null) void look()
+  }, POLL_MS)
+
+  // Tells the host how tall the panel is, so it fits without a scrollbar.
+  let lastHeight = 0
+  new ResizeObserver(() => {
+    const height = Math.ceil(document.documentElement.getBoundingClientRect().height)
+    if (height !== lastHeight) {
+      lastHeight = height
+      notify('ui/notifications/size-changed', { height })
+    }
+  }).observe(document.documentElement)
+
+  render()
+  request('ui/initialize', {
+    appInfo: { name: 'device-screenshot', version: VERSION },
+    // In the conversation it is inline; as a side panel tab or a sidebar page, fullscreen.
+    appCapabilities: { availableDisplayModes: ['inline', 'fullscreen'] },
+    protocolVersion: '2025-11-21',
+  })
+    .then(result => {
+      useContext(result?.hostContext)
+      notify('ui/notifications/initialized', {})
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (!hasListed) void look()
+    })
+})()
+</script>
+</body>
+</html>
