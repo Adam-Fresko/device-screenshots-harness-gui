@@ -67,7 +67,7 @@ Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you c
 
 **What it reads.**
 
-- The environment variables `HOME`, `TMPDIR`, `PATH`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, to find the screenshot folder and `adb`
+- The environment variables `HOME`, `TMPDIR`, `PATH`, `ANDROID_HOME` and `ANDROID_SDK_ROOT`, to find the screenshot folder and `adb`. Their values go only into the commands above: the screenshot folder's path, and the `PATH` that `adb` runs with
 - What the commands above print: the device lists, and an error line when a capture fails
 
 It reads no file and none of the conversation, your prompt box included.
