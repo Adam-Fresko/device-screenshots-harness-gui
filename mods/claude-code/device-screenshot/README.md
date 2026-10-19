@@ -25,6 +25,12 @@ While a capture runs, a spinner shows in front of the device's name (`⠹ Galaxy
 
 While shown, the buttons follow your devices: the mod checks what's connected every 5 seconds, and **↻** checks right away. While hidden, it doesn't check. With no device connected, no device buttons show, only **↻** and the other controls.
 
+## What it needs
+
+- **macOS.** On Linux, the Android buttons should work, and with no `osascript` to copy, a press puts an `@path` mention for the picture into your prompt instead; this is untested. It doesn't work on **Windows**: the row shows, but no device buttons appear.
+- Claude Code 2.1.295 or newer, which runs mods.
+- Xcode, for iOS simulators, iPhones and iPads. Android platform-tools (`adb`), for Android phones and emulators.
+
 ## Install
 
 At the prompt of a Claude Code terminal session:
