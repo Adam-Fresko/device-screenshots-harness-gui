@@ -4,22 +4,26 @@ A small button for each device that is connected or running, such as **iPhone 14
 
 The [Codex version](../../codex/device-screenshot) draws the same buttons in a panel in the conversation.
 
-The buttons sit in a row above the prompt. In the desktop app, a black-and-white Apple or Android logo stands before each device's button. Terminals can't draw logos, so there each label starts with 📷:
+The buttons sit in a row above the prompt. In the desktop app, a black-and-white Apple or Android logo stands before each device's button. Terminals can't draw logos, so there each label starts with a character: the Apple logo () for iOS, which macOS's own fonts draw, and 🤖 for Android:
 
 ```
-[ ↻ ] [ 📷 iPhone 14 ] [ 📷 Galaxy S25 ] [ 📷 Android Emulator ]          ?  ×
+[ ↻ ] [  iPhone 14 ] [ 🤖 Galaxy S25 ] [ 🤖 Android Emulator ]          ?  ×
 ```
+
+A terminal font that doesn't draw the Apple logo, such as some Nerd Fonts, may show a box or another symbol in its place.
 
 **?** opens an explanation under the buttons. The × in the corner hides the row. To bring it back:
 
 - In the Claude desktop app, press **screenshots** in the footer under the prompt, between the permission mode and the model. It shows only while the row is hidden.
-- In a terminal session, run `/device-screenshot`. Running it again hides the row. The desktop app may not offer this command, which is why it has the footer button.
+- In a terminal session, run `/device-screenshot`. It always shows the row; `/device-screenshot hide` hides it, as × does. The desktop app may not offer this command, which is why it has the footer button.
+
+In a terminal, Claude Code draws its own **[-]** beside the row. It folds the row rather than hiding it, and the mod can't see that: press **ctrl+x ctrl+a** to unfold it.
 
 The buttons show from the start, and the mod remembers whether you hid them for your next session. While shown, the row is redrawn every 5 seconds, so it comes back on its own if the app clears the space above the prompt at the end of a turn.
 
 While a capture runs, a spinner shows in front of the device's name (`⠹ Galaxy S25`). It then shows ✓ for a moment, or ✕ if the capture failed.
 
-While shown, the buttons follow your devices: the mod checks what's connected every 5 seconds, and **↻** checks right away. While hidden, it doesn't check. With no device connected, no 📷 buttons show, only **↻** and the other controls.
+While shown, the buttons follow your devices: the mod checks what's connected every 5 seconds, and **↻** checks right away. While hidden, it doesn't check. With no device connected, no device buttons show, only **↻** and the other controls.
 
 ## Install
 

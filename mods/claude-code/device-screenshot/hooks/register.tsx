@@ -47,6 +47,10 @@ const LOGO: Record<Platform, { source: string; alt: string }> = {
   },
 }
 
+// Terminals can't draw the logos, so their buttons start with a character instead: the
+// Apple logo (U+F8FF, which macOS's fonts draw as the logo) and the usual robot for Android.
+const GLYPH: Record<Platform, string> = { ios: '\uF8FF', android: '🤖' }
+
 type SimctlList = { devices?: Record<string, { udid: string; name: string; state: string }[]> }
 
 type DevicectlList = {
@@ -426,7 +430,7 @@ async function screenshot($: EngineInterface, device: Device, surface: RenderSur
 
 /**
  * A device's button: a spinner while it captures, ✓ or ✕ for a moment after.
- * At rest a terminal's starts with 📷; a desktop draws the platform's logo beside it.
+ * At rest a terminal's starts with the platform's character; a desktop draws its logo beside it.
  */
 function labelOf(device: Device, running: string | null, finished: Finished | null, hasLogo: boolean): string {
   if (running === device.id) {
@@ -436,7 +440,7 @@ function labelOf(device: Device, running: string | null, finished: Finished | nu
     return `${finished.isOk ? '✓' : '✕'} ${device.name}`
   }
 
-  return hasLogo ? device.name : `📷 ${device.name}`
+  return hasLogo ? device.name : `${GLYPH[device.platform]} ${device.name}`
 }
 
 /** What ? says: how the buttons work, with this surface's paste key and toggle. */
@@ -444,11 +448,11 @@ function helpOf(surface: RenderSurface): string {
   const paste = surface === 'terminal' ? 'Ctrl+V' : '⌘V'
 
   return [
-    `Press a 📷 button to screenshot that device. The picture is copied to your clipboard: paste it into your message with ${paste}.`,
+    `Press a device's button to screenshot it. The picture is copied to your clipboard: paste it into your message with ${paste}.`,
     '↻ looks for devices again; the list also updates every 5 seconds.',
     'Lists booted iOS simulators and connected iPhones (needs Xcode), and Android devices and emulators (needs adb).',
     surface === 'terminal'
-      ? '/device-screenshot or × hides these buttons; /device-screenshot shows them again.'
+      ? '× or /device-screenshot hide hides these buttons; /device-screenshot shows them again. [-] only folds them: ctrl+x ctrl+a unfolds.'
       : '× hides these buttons; "screenshots" in the footer under the prompt shows them again.',
   ].join(' ')
 }
@@ -538,7 +542,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'device-screenshot',
-      description: 'Show or hide the device screenshot buttons above the prompt',
+      description: 'Show the device screenshot buttons above the prompt; `hide` hides them',
+      argumentHint: '[hide]',
       immediate: true,
     })
     // Shown unless hidden before: the desktop app lists no mod's slash command, so
@@ -561,10 +566,20 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'device-screenshot' }, async $ => {
-    await setShown($, !(await read($, isShown)))
+  // Shows, rather than toggles: the terminal's own [-] folds the band without the mod
+  // knowing, so a toggle run on folded buttons would hide them instead.
+  on('command.run', { command: 'device-screenshot' }, async ($, e) => {
+    const wanted = e.args.trim().toLowerCase()
+    if (wanted === 'hide') {
+      await setShown($, false)
+      return { text: 'Device screenshot buttons hidden. Run /device-screenshot to show them again.' }
+    }
+    if (wanted !== '' && wanted !== 'show') {
+      return { text: 'Run /device-screenshot to show the buttons, or /device-screenshot hide to hide them.' }
+    }
+    await setShown($, true)
 
-    return {}
+    return { text: 'Device screenshot buttons are above the prompt. If you folded them with [-], press ctrl+x ctrl+a.' }
   })
 
   // On desktop, the way back to hidden buttons: "screenshots" in the footer under the

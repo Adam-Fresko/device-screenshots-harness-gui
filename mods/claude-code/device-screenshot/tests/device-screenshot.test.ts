@@ -2,6 +2,10 @@ import type { Engine } from 'claude-code/testing'
 import type { FsStat, On, ProcessRunResult, RenderPropsOf } from 'claude-code'
 import { expect, mock, test } from 'claude-code/testing'
 
+// What a terminal button starts with, by platform.
+const APPLE = '\uF8FF'
+const ROBOT = '🤖'
+
 const NOW = Date.UTC(2026, 9, 15, 18, 15, 30, 123)
 const STAMP = '20261015-181530-123'
 const DIR = '/var/folders/t/T/claude-device-screenshots'
@@ -167,10 +171,10 @@ async function mountFooter($: Engine, surface: 'terminal' | 'desktop') {
   return $.ui.mount({ plugin: 'device-screenshot', surface, component: 'SessionMode', props: { modes: ['focus'] } })
 }
 
-async function toggle($: Engine) {
+async function toggle($: Engine, args = '') {
   return $.command.run({
     command: 'device-screenshot',
-    args: '',
+    args,
     origin: { kind: 'composer' },
     presentation: { isFullscreen: false, columns: 80 },
   })
@@ -194,7 +198,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await mountRow($, surface)
 
     const names = ['iPhone 17 Pro', 'iPhone 14', 'Galaxy S25', 'Android Emulator']
-    expect(await buttonLabels(ui)).toEqual(['↻', ...names.map(name => (surface === 'terminal' ? `📷 ${name}` : name))])
+    const glyphs = [APPLE, APPLE, ROBOT, ROBOT]
+    expect(await buttonLabels(ui)).toEqual(['↻', ...names.map((name, i) => (surface === 'terminal' ? `${glyphs[i]} ${name}` : name))])
     expect(await ui.findAll({ type: 'Text' })).toEqual([])
   })
 
@@ -228,7 +233,7 @@ test('a failed capture says why in a toast and fills nothing', async ($, on) => 
   expect((await ui.find({ key: 'shot:RFCYA08AC7R' }))?.text).toBe('✕ Galaxy S25')
 })
 
-test('a capturing button spins, shows ✓ for a moment, then 📷 again', async ($, on) => {
+test('a capturing button spins, shows ✓ for a moment, then its name again', async ($, on) => {
   const world = machine(on, tools([PHONE]))
   let release = () => {}
   world.hold = new Promise<void>(resolve => {
@@ -262,7 +267,7 @@ test('devices that share a name are numbered', async ($, on) => {
   await start($)
   const ui = await mountRow($, 'terminal')
 
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Android Emulator', '📷 Android Emulator 2'])
+  expect(await buttonLabels(ui)).toEqual(['↻', `${APPLE} iPhone 17 Pro`, `${APPLE} iPhone 14`, `${ROBOT} Android Emulator`, `${ROBOT} Android Emulator 2`])
 })
 
 test('the buttons follow devices as they connect and leave', async ($, on) => {
@@ -380,17 +385,33 @@ test('terminal footer: left to the engine, shown or hidden', async ($, on) => {
   expect((await footer.find({ type: 'Text' }))?.text).toBe('engine modes')
 })
 
-test('terminal: buttons hidden before stay hidden until /device-screenshot, and a second run hides them', async ($, on) => {
+test('terminal: buttons hidden before stay hidden until /device-screenshot, which only ever shows them', async ($, on) => {
   const world = machine(on, tools([PHONE]), { isShown: false })
   await start($)
 
   const shown = await toggle($)
-  expect(shown.text).toBeUndefined()
+  expect(shown.text).toContain('Device screenshot buttons are above the prompt.')
   const ui = await mountRow($, 'terminal')
-  expect(await buttonLabels(ui)).toEqual(['↻', '📷 iPhone 17 Pro', '📷 iPhone 14', '📷 Galaxy S25'])
+  expect(await buttonLabels(ui)).toEqual(['↻', `${APPLE} iPhone 17 Pro`, `${APPLE} iPhone 14`, `${ROBOT} Galaxy S25`])
   expect(world.saved.isShown).toBe(true)
 
+  // A second run, as after the terminal's [-] folded the band, keeps them shown.
   await toggle($)
+  expect(await buttonLabels(ui)).toEqual(['↻', `${APPLE} iPhone 17 Pro`, `${APPLE} iPhone 14`, `${ROBOT} Galaxy S25`])
+  expect(world.saved.isShown).toBe(true)
+})
+
+test('terminal: /device-screenshot hide hides the buttons; an unknown word changes nothing', async ($, on) => {
+  const world = machine(on, tools([PHONE]))
+  await start($)
+  const ui = await mountRow($, 'terminal')
+
+  const odd = await toggle($, 'sideways')
+  expect(odd.text).toBe('Run /device-screenshot to show the buttons, or /device-screenshot hide to hide them.')
+  expect(world.saved.isShown).not.toBe(false)
+
+  const hidden = await toggle($, ' Hide ')
+  expect(hidden.text).toBe('Device screenshot buttons hidden. Run /device-screenshot to show them again.')
   expect(await ui.findAll({ type: 'Button' })).toEqual([])
   expect(world.saved.isShown).toBe(false)
 })
@@ -419,7 +440,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     await ui.press({ key: 'help' })
     const help = await ui.findAll({ type: 'Text' })
     expect(help).toHaveLength(1)
-    expect(help[0]?.text).toContain('Press a 📷 button to screenshot that device.')
+    expect(help[0]?.text).toContain("Press a device's button to screenshot it.")
     expect(help[0]?.text).toContain(surface === 'terminal' ? 'Ctrl+V' : '⌘V')
     expect(help[0]?.text).toContain(surface === 'terminal' ? '/device-screenshot' : '"screenshots" in the footer under the prompt')
 
