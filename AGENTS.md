@@ -40,7 +40,7 @@ CLAUDE.md                          imports AGENTS.md
 A Claude Code mod is a plugin made of function hooks: one TypeScript module that hooks the engine's events and draws UI with JSX.
 
 ```
-.claude-plugin/plugin.json   name, version, description, author; plus "types": "./types/index.d.ts" if it has a state contract
+.claude-plugin/plugin.json   name, version, description, author; plus displayName, license, homepage, repository for a directory listing
 hooks/hooks.json             { "modules": ["./register.tsx"] }: exactly one path, relative to this file
 hooks/register.tsx           export const register: Register = (on, options) => { ... }
 types/index.d.ts             only when the mod keeps values in $.state (see below)
@@ -56,7 +56,7 @@ The API is early access and changes between releases. Use the type declarations 
 - `on(event, matcher?, hook)` adds a hook. Every hook is `($, e, next)`. `$` is the engine, `e` is the event's frozen input, and `next(e)` runs the plugins beneath and then the engine's own behaviour. A hook can pass the event through with `next(e)`, rewrite it with `next({ ...e, field })`, or answer it alone by returning without calling `next`.
 - The module runs in an isolated environment: no DOM, no Node, no `require`, no dynamic `import()`. Static `import` of the mod's own files is fine. Everything outside the module goes through `$`: `$.fs`, `$.process`, `$.ui`, `$.state`, `$.store`, `$.model`, `$.tool`, `$.agent`, `$.command`, `$.clock` and the rest.
 - JSX compiles against the global `h`. There are no element globals. Get the elements from the surface you are drawing on: `const { Box, Text, Button } = $.ui.resolve(e)`. `e.surface` is `terminal`, `desktop`, `vscode` or `mobile`, and each surface has a different element table, so don't assume one.
-- Store values that drawings read in `$.state`. It is session-scoped and survives a hot reload. Declare each value in `types/index.d.ts` under `interface PluginState { '<mod-name>': { ... } }`, and name that file in `plugin.json` as `"types"`. For values that must last across sessions, use `$.store`. Module-level variables reset on every reload.
+- Store values that drawings read in `$.state`. It is session-scoped and survives a hot reload. Declare each value in `types/index.d.ts` under `interface PluginState { '<mod-name>': { ... } }`. Claude Code finds that file by itself; don't name it in `plugin.json` as `"types"`, which Anthropic's plugin directory flags as an unknown field. For values that must last across sessions, use `$.store`. Module-level variables reset on every reload.
 - Never write state from inside a `ui.render` hook. Write it from a press handler or from another event, using `update($, ref, fn)` from `'claude-code'`.
 - A guard is a hook whose answer can refuse something (`tool.call`, `prompt.submit`, `command.run` and similar). Give every guard a `.catch(($, e, next) => next.called ? next(e) : { deny: '<why>' })`. Without it, a guard that crashes lets the action through.
 - Work that outlives a single event starts in `session.start` and runs on `$.clock.every` / `$.clock.after`.
