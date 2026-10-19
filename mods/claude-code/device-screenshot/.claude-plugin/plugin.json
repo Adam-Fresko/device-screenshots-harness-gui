@@ -10,7 +10,7 @@
   "repository": "https://github.com/Adam-Fresko/mods-harness-gui",
   "documentationUrl": "https://github.com/Adam-Fresko/mods-harness-gui/blob/main/mods/claude-code/device-screenshot/README.md",
   "supportUrl": "https://github.com/Adam-Fresko/mods-harness-gui/issues",
-  "privacyPolicyUrl": "https://github.com/Adam-Fresko/mods-harness-gui/blob/main/mods/claude-code/device-screenshot/README.md#what-it-runs-reads-and-sends",
+  "privacyPolicyUrl": "https://github.com/Adam-Fresko/mods-harness-gui/blob/main/mods/claude-code/device-screenshot/PRIVACY.md",
   "license": "MIT",
   "keywords": [
     "screenshot",

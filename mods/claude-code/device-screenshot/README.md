@@ -59,6 +59,8 @@ Screenshots are saved as `<platform>-<device>-<time>.png` in a folder only you c
 
 ## What it runs, reads and sends
 
+The mod's privacy policy is [PRIVACY.md](PRIVACY.md). In detail:
+
 **What it sends, and where: nothing, to no one.** The mod opens no network connection and calls no web service. A screenshot leaves your Mac only when you send a message with it attached; Claude Code then sends it to Anthropic like any picture you paste.
 
 **Programs it starts, and why.** The mod starts programs through Claude Code's process call, and each command is written out in full where it runs in `hooks/register.tsx`. These are all of them. They talk only to your own devices, over USB or the local network a device is paired on.
