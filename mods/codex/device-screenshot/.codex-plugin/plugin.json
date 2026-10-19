@@ -5,6 +5,7 @@
   "author": { "name": "Adam Fresko" },
   "homepage": "https://github.com/Adam-Fresko/mods-harness-gui/tree/main/mods/codex/device-screenshot",
   "repository": "https://github.com/Adam-Fresko/mods-harness-gui",
+  "license": "MIT",
   "keywords": ["screenshot", "ios", "android", "simulator", "emulator", "iphone", "adb", "xcode"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
