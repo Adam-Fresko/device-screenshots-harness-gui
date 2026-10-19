@@ -2,6 +2,8 @@
 
 A small button for each device that is connected or running, such as **iPhone 14** and **Android Emulator**. Press one to screenshot that device: the mod copies the picture to your clipboard, and a toast tells you to paste it. Press **⌘V** in the desktop app, or **Ctrl+V** in a terminal session, and it attaches as an image, the same as any picture you paste.
 
+The [Codex version](../../codex/device-screenshot) draws the same buttons in a panel in the conversation.
+
 The buttons sit in a row above the prompt. In the desktop app, a black-and-white Apple or Android logo stands before each device's button. Terminals can't draw logos, so there each label starts with 📷:
 
 ```
